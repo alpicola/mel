@@ -1,0 +1,83 @@
+{-# LANGUAGE FlexibleInstances, UndecidableInstances, TypeSynonymInstances #-}
+module Frontend.Types where
+
+import Data.List
+import Data.Maybe
+import Data.Map (Map)
+import qualified Data.Map as M
+import Data.Set (Set)
+import qualified Data.Set as S
+
+import Internal
+
+type TypeVar = Int
+
+data Type = TypeVar TypeVar
+          | IntType
+          | FloatType
+          | BoolType
+          | UnitType
+          | FunType Type Type
+          | TupleType [Type]
+          | DataType [Type] Name
+          deriving Eq
+
+data TypeScheme = TypeScheme [TypeVar] Type
+type TypeEnv = Map Name TypeScheme
+type TypeSubst = Map TypeVar Type
+
+type DataType = (Int, Name, [(Name, [Type])])
+
+mono :: Type -> TypeScheme
+mono = TypeScheme []
+
+class TypeLike t where
+ fv :: t -> Set TypeVar
+ subst :: TypeSubst -> t -> t
+
+instance TypeLike Type where
+  fv (TypeVar v) = S.singleton v
+  fv (FunType t1 t2) = S.union (fv t1) (fv t2)
+  fv (TupleType ts) = foldl S.union S.empty $ map fv ts
+  fv (DataType ts _) = foldl S.union S.empty $ map fv ts
+  fv _ = S.empty
+  
+  subst s t@(TypeVar v) = fromMaybe t $ M.lookup v s
+  subst s (FunType t1 t2) = FunType (subst s t1) (subst s t2)
+  subst s (TupleType ts) = TupleType (map (subst s) ts)
+  subst s (DataType ts n) = DataType (map (subst s) ts) n
+  subst _ t = t
+
+instance TypeLike TypeScheme where
+ fv (TypeScheme vs t) = foldr S.delete (fv t) vs
+ subst s (TypeScheme vs t) = TypeScheme vs $ subst (foldr M.delete s vs) t
+
+instance TypeLike TypeEnv where
+ fv = foldr S.union S.empty . map fv . M.elems
+ subst s = M.map (subst s)
+
+bind :: TypeVar -> Type -> TypeSubst -> TypeSubst
+bind v t s = M.insert v t $ M.map (subst $ M.singleton v t) s
+
+showType :: [TypeVar] -> Type -> String
+showType vs t = 
+  case vs of
+    [] -> f 0 t
+    _ -> "(" ++ intercalate "," (map (('\'':) . show) vs) ++ ")." ++ f 0 t
+ where
+  f _ (TypeVar v) = '\'' : show v
+  f _ IntType = "int"
+  f _ FloatType = "float"
+  f _ BoolType = "bool"
+  f _ UnitType = "unit"
+  f p (FunType t1 t2) = let s = f 1 t1 ++ " -> " ++ f 0 t2
+                        in if p > 0 then "(" ++ s ++ ")" else s 
+  f _ (TupleType ts) = "(" ++ intercalate ", " (map (f 0) ts) ++ ")" 
+  f p (DataType ts n) = let s = intercalate " " $ n : map (f 2) ts
+                        in if p > 1 then "(" ++ s ++ ")" else s
+
+instance Show Type where
+ show = showType []
+
+instance Show TypeScheme where
+ show (TypeScheme vs t) = showType vs t
