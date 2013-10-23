@@ -68,15 +68,15 @@ data AnnDecl = ARecDecl AnnPolyBinder AnnExpr
              | ADecl AnnPolyBinder AnnExpr
              deriving Show
 
-data AnnExpr = AVar Name Type
+data AnnExpr = AVar Name Type [Type]
              | AValue Value
              | AIf AnnExpr AnnExpr AnnExpr
              | ALet AnnDecl AnnExpr
-             | AMatch AnnExpr [AnnAlt] Type
+             | AMatch AnnExpr [AnnAlt]
              | AFun AnnBinder AnnExpr
              | AApply AnnExpr AnnExpr
              | AOp PrimOp [AnnExpr]
-             | ACon Name [AnnExpr] Type [Type]
+             | ACon Name [AnnExpr] Type
              | ATuple [AnnExpr]
              deriving Show
 

@@ -20,7 +20,7 @@ data Type = TypeVar TypeVar
           | FunType Type Type
           | TupleType [Type]
           | DataType [Type] Name
-          deriving Eq
+          deriving (Eq, Ord)
 
 data TypeScheme = TypeScheme [TypeVar] Type
 type TypeEnv = Map Name TypeScheme
@@ -63,6 +63,7 @@ showType :: [TypeVar] -> Type -> String
 showType vs t = 
   case vs of
     [] -> f 0 t
+    [v] -> ('\'' : show v) ++ "." ++ f 0 t
     _ -> "(" ++ intercalate "," (map (('\'':) . show) vs) ++ ")." ++ f 0 t
  where
   f _ (TypeVar v) = '\'' : show v
