@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleInstances, UndecidableInstances, TypeSynonymInstances #-}
 module Frontend.Types where
 
+import Data.Char
 import Data.List
 import Data.Maybe
 import Data.Map (Map)
@@ -63,10 +64,10 @@ showType :: [TypeVar] -> Type -> String
 showType vs t = 
   case vs of
     [] -> f 0 t
-    [v] -> ('\'' : show v) ++ "." ++ f 0 t
-    _ -> "(" ++ intercalate "," (map (('\'':) . show) vs) ++ ")." ++ f 0 t
+    [v] -> showTypeVar v ++ "." ++ f 0 t
+    _ -> "(" ++ intercalate "," (map showTypeVar vs) ++ ")." ++ f 0 t
  where
-  f _ (TypeVar v) = '\'' : show v
+  f _ (TypeVar v) = showTypeVar v
   f _ IntType = "int"
   f _ FloatType = "float"
   f _ BoolType = "bool"
@@ -76,6 +77,13 @@ showType vs t =
   f _ (TupleType ts) = "(" ++ intercalate ", " (map (f 0) ts) ++ ")" 
   f p (DataType ts n) = let s = intercalate " " $ n : map (f 2) ts
                         in if p > 1 then "(" ++ s ++ ")" else s
+
+showTypeVar :: TypeVar -> String
+showTypeVar n = '\'' : map (chr . (97 +)) (digits n 26)
+ where
+  digits n base =
+    reverse $ unfoldr (\m -> if m == 0 then Nothing
+                                       else Just (m `mod` base, m `div` base)) n
 
 instance Show Type where
  show = showType []

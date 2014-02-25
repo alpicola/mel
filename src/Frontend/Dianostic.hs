@@ -6,7 +6,6 @@ import Frontend.Types
 import Internal
 
 type Dianostic = String
-type Frontend a = ErrorT Dianostic Fresh a
 
 unboundVar :: (Error e, MonadError e m) => Name -> m a
 unboundVar n = throwError $ strMsg $ "unbound variable " ++ n

@@ -5,6 +5,7 @@ module Frontend.Parser
 
 import Control.Applicative hiding ((<|>), many, optional)
 import Control.Monad.Error
+import Control.Monad.Identity
 import Text.Parsec
 import Text.Parsec.String
 import Text.Parsec.Expr
@@ -17,16 +18,16 @@ import Frontend.AST
 import Frontend.Dianostic
 import Internal
 
-runParser' :: Parser a -> String -> Frontend a
+runParser' :: Parser a -> String -> Either Dianostic a
 runParser' p input =
   case parse (whiteSpace *> p <* eof) "(input)" input of
     Left e -> throwError $ strMsg $ show e
     Right a -> return a
 
-parseMLProgram :: String -> Frontend MLProgram
+parseMLProgram :: String -> Either Dianostic MLProgram
 parseMLProgram = runParser' program
 
-parseMLExpr :: String -> Frontend MLExpr
+parseMLExpr :: String -> Either Dianostic MLExpr
 parseMLExpr = runParser' expr
 
 -- Parser

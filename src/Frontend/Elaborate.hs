@@ -17,9 +17,9 @@ import Frontend.Types
 import Frontend.Dianostic
 import Internal
 
-elaborate :: MLProgram -> Frontend AnnProgram
+elaborate :: MLProgram -> ErrorT Dianostic Fresh AnnProgram
 elaborate (tdecls, decls) = do
-  typs <- (builtinDataTypes ++) <$> buildDataTypes tdecls
+  typs <- liftError $ (builtinDataTypes ++) <$> buildDataTypes tdecls
   let body = foldr MLLet (MLValue UnitValue) decls
       env = (M.empty, buildConEnv typs)
   ((_, body'), s) <- runTC env $ tcExpr body
@@ -44,7 +44,7 @@ builtinDataTypes =
   , (1, "option", [("None", []), ("Some", [TypeVar 0])])
   ]
 
-buildDataTypes :: [MLTypeDecl] -> Frontend [DataType]
+buildDataTypes :: [MLTypeDecl] -> Either Dianostic [DataType]
 buildDataTypes decls = evalStateT (mapM build decls) builtinTypeConEnv
  where
   build (params, tcon, cons) = do
@@ -55,25 +55,25 @@ buildDataTypes decls = evalStateT (mapM build decls) builtinTypeConEnv
       (,) name <$> mapM (evalType params env) args
     return (len, tcon, cons')
 
-evalType :: [Name] -> TypeConEnv -> MLType -> Frontend Type
+evalType :: [Name] -> TypeConEnv -> MLType -> Either Dianostic Type
 evalType params env t = eval t
  where
   eval (MLTypeVar tvar) =
     case elemIndex tvar params of
       Nothing -> unboundTypeVar tvar
       Just i -> return $ TypeVar i
-  eval (MLTypeCon targs tcon) =
+  eval (MLTypeCon ts tcon) =
     case M.lookup tcon env of
       Nothing -> unboundTypeCon tcon
       Just len
-        | len == length targs ->
+        | len == length ts ->
           case tcon of
             "int" -> return IntType
             "float" -> return FloatType
             "bool" -> return BoolType
             "unit" -> return UnitType
-            _ -> flip DataType tcon <$> mapM eval targs 
-        | otherwise -> typeConArgsNum tcon (length targs) len 
+            _ -> flip DataType tcon <$> mapM eval ts
+        | otherwise -> typeConArgsNum tcon (length ts) len 
   eval (MLFunType e e') = FunType <$> eval e <*> eval e'
   eval (MLTupleType es) = TupleType <$> mapM eval es
 
@@ -92,7 +92,7 @@ newtype TC a = TC
  deriving ( Functor, Applicative, Monad, MonadError Dianostic
           , MonadReader TCEnv, MonadState TypeSubst, MonadFresh )
 
-runTC :: TCEnv -> TC a -> Frontend (a, TypeSubst)
+runTC :: TCEnv -> TC a -> ErrorT Dianostic Fresh (a, TypeSubst)
 runTC env = flip runStateT M.empty . flip runReaderT env . unTC
 
 genVar :: TC Type
@@ -110,15 +110,11 @@ generalize t = do
   env <- asks fst >>= update
   return $ TypeScheme (S.elems $ S.difference (fv t') (fv env)) t'
 
-instatiate :: TypeScheme -> TC Type
-instatiate (TypeScheme vs t) = do
-  s <- M.fromList <$> mapM (\v -> (v,) <$> genVar) vs
-  subst s <$> update t
-
-instatiate' :: [TypeVar] -> [Type] -> TC [Type]
-instatiate' vs ts = do
-  s <- M.fromList <$> mapM (\v -> (v,) <$> genVar) vs
-  mapM (update >=> return . subst s) ts
+instantiate :: TypeScheme -> TC ([Type], Type)
+instantiate (TypeScheme vs t) = do
+  vs' <- mapM (const genVar) vs
+  let s = M.fromList $ zip vs vs'
+  (,) vs' . subst s <$> update t
 
 bindVar :: TypeVar -> Type -> TC ()
 bindVar v t
@@ -146,12 +142,13 @@ unify t1 t2 = do
     | otherwise = imcompatibleTypes t t'
 
 tcExpr :: MLExpr -> TC (Type, AnnExpr)
-tcExpr (MLVar n) = do
+tcExpr (MLVar var) = do
   env <- asks fst
-  case M.lookup n env of
-    Nothing -> unboundVar n
-    Just t -> do t' <- instatiate t
-                 return (t', AVar n t')
+  case M.lookup var env of
+    Nothing -> unboundVar var
+    Just sc -> do
+      (targs, t) <- instantiate sc
+      return (t, AVar var targs t)
 tcExpr (MLValue val) =
   let t = case val of
             IntValue _ -> IntType
@@ -178,7 +175,7 @@ tcExpr (MLMatch e alts) = do
     unify t t1
     unify v t2
     return alt'
-  return (v, AMatch e' alts' t)
+  return (v, AMatch e' alts')
 tcExpr (MLFun b e) = do
   v <- genVar
   (t, e') <- withBind (maybeToList $ (, mono v) <$> b) $ tcExpr e
@@ -210,29 +207,30 @@ tcExpr (MLOp op es)
       unify FloatType t
       return e'
     return (FloatType, AOp op es')
-tcExpr (MLCon con args) = do
+tcExpr (MLCon con es) = do
   env <- asks snd
   case M.lookup con env of
     Nothing -> unboundCon con
-    Just (i, t, targs)
-      | length targs == length args -> do
-        (t':targs') <- instatiate' [0..i-1] (t:targs)
-        (ts, args') <- unzip <$> mapM tcExpr args
-        zipWithM_ unify ts targs'
-        return (t', ACon con args' t' targs')
-      | otherwise -> conArgsNum con (length targs) (length args)  
+    Just (i, t, ts)
+      | length ts == length es -> do
+        let sc = TypeScheme [0..i-1] $ TupleType (t:ts)
+        (targs, TupleType (t':ts')) <- instantiate sc
+        (ts'', es') <- unzip <$> mapM tcExpr es
+        zipWithM_ unify ts' ts''
+        return (t', ACon con targs t' es')
+      | otherwise -> conArgsNum con (length ts) (length es)  
 
 tcDecl :: MLDecl -> TC ([(Name, TypeScheme)], AnnDecl)
 tcDecl (MLRecDecl b e) = do
   v <- genVar
-  (t, e') <- withBind (maybeToList $ (, mono v) <$>  b) $ tcExpr e
-  t' <- generalize t
-  let b' = (, t') <$> b
+  (t, e') <- withBind (maybeToList $ (, mono v) <$> b) $ tcExpr e
+  sc <- generalize t
+  let b' = (, sc) <$> b
   return (maybeToList b', ARecDecl b' e')
 tcDecl (MLDecl b e) = do
   (t, e') <- tcExpr e
-  t' <- generalize t
-  let b' = (, t') <$> b
+  sc <- generalize t
+  let b' = (, sc) <$> b
   return (maybeToList b', ADecl b' e')
 
 tcAlt :: MLAlt -> TC (Type, Type, AnnAlt)
@@ -240,34 +238,30 @@ tcAlt (MLConCase con bs e) = do
   env <- asks snd
   case M.lookup con env of
     Nothing -> unboundCon con
-    Just (i, t, targs) -> do
-      (t':targs') <- instatiate' [0..i-1] (t:targs)
-      let bs' = zipWith (\b t -> (, t) <$> b) bs targs'
+    Just (i, t, ts) -> do
+      let sc = TypeScheme [0..i-1] $ TupleType (t:ts)
+      (targs, TupleType (t':ts')) <- instantiate sc
+      let bs' = zipWith (fmap . flip (,)) ts' bs
           bind = map (second mono) $ catMaybes bs'
       (t'', e') <- withBind bind $ tcExpr e
-      return (t', t'', AConCase con bs' e')
+      return (t', t'', AConCase con targs bs' e')
 tcAlt (MLDefaultCase e) = do
   v <- genVar
   (t, e') <- tcExpr e
   return (v, t, ADefaultCase e')
 
--- replace free type variables with an arbitrary type
--- subst' :: TypeLike t => TypeSubst -> t -> t
--- subst' s t = let s' = M.fromList $ map (flip (,) UnitType) $ S.elems $ fv t
---              in subst s' $ subst s t
-
-substBinder :: TypeLike t => TypeSubst -> Maybe (a, t) -> Maybe (a, t)
+substBinder :: TypeLike t => TypeSubst -> Binder (a, t) -> Binder (a, t)
 substBinder s = fmap $ second $ subst s
 
 substExpr :: TypeSubst -> AnnExpr -> AnnExpr
-substExpr s (AVar n t) = AVar n $ subst s t
+substExpr s (AVar n ts t) = AVar n (map (subst s) ts) (subst s t)
 substExpr s e@(AValue _) = e
 substExpr s (AIf e1 e2 e3) = AIf (substExpr s e1) (substExpr s e2) (substExpr s e3)
 substExpr s (ALet d e) = ALet (substDecl s d) (substExpr s e) 
-substExpr s (AMatch e alts t) = AMatch (substExpr s e) (map (substAlt s) alts) (subst s t)
+substExpr s (AMatch e alts) = AMatch (substExpr s e) (map (substAlt s) alts)
 substExpr s (AFun b e) = AFun (substBinder s b) (substExpr s e) 
 substExpr s (AApply e1 e2) = AApply (substExpr s e1) (substExpr s e2)
-substExpr s (ACon con es t ts) = ACon con (map (substExpr s) es) (subst s t) (map (subst s) ts)
+substExpr s (ACon con ts t es) = ACon con (map (subst s) ts) (subst s t) (map (substExpr s) es)
 substExpr s (AOp op es) = AOp op (map (substExpr s) es)
 
 substDecl :: TypeSubst -> AnnDecl -> AnnDecl
@@ -275,5 +269,5 @@ substDecl s (ARecDecl b e) = ARecDecl (substBinder s b) (substExpr s e)
 substDecl s (ADecl b e) = ADecl (substBinder s b) (substExpr s e)
 
 substAlt :: TypeSubst -> AnnAlt -> AnnAlt
-substAlt s (AConCase con bs e) = AConCase con (map (substBinder s) bs) (substExpr s e)
+substAlt s (AConCase con ts bs e) = AConCase con (map (subst s) ts) (map (substBinder s) bs) (substExpr s e)
 substAlt s (ADefaultCase e) = ADefaultCase (substExpr s e)
