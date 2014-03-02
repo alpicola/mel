@@ -27,10 +27,7 @@ data TypeScheme = TypeScheme [TypeVar] Type
 type TypeEnv = Map Name TypeScheme
 type TypeSubst = Map TypeVar Type
 
-type DataType = (Int, Name, [(Name, [Type])])
-
-mono :: Type -> TypeScheme
-mono = TypeScheme []
+type DataTypeDecl = (Int, Name, [(Name, [Type])])
 
 class TypeLike t where
  fv :: t -> Set TypeVar
@@ -57,6 +54,12 @@ instance TypeLike TypeEnv where
  fv = foldr S.union S.empty . map fv . M.elems
  subst s = M.map (subst s)
 
+instance Show Type where
+ show = showType []
+
+instance Show TypeScheme where
+ show (TypeScheme vs t) = showType vs t
+
 bind :: TypeVar -> Type -> TypeSubst -> TypeSubst
 bind v t s = M.insert v t $ M.map (subst $ M.singleton v t) s
 
@@ -75,18 +78,13 @@ showType vs t =
   f p (FunType t1 t2) = let s = f 1 t1 ++ " -> " ++ f 0 t2
                         in if p > 0 then "(" ++ s ++ ")" else s 
   f _ (TupleType ts) = "(" ++ intercalate ", " (map (f 0) ts) ++ ")" 
-  f p (DataType ts n) = let s = intercalate " " $ n : map (f 2) ts
+  f p (DataType ts n) = let s = intercalate " " $ show n : map (f 2) ts
                         in if p > 1 then "(" ++ s ++ ")" else s
 
 showTypeVar :: TypeVar -> String
-showTypeVar n = '\'' : map (chr . (97 +)) (digits n 26)
+showTypeVar i = '\'' : map (chr . (97 +)) (digits 26 i)
  where
-  digits n base =
-    reverse $ unfoldr (\m -> if m == 0 then Nothing
-                                       else Just (m `mod` base, m `div` base)) n
-
-instance Show Type where
- show = showType []
-
-instance Show TypeScheme where
- show (TypeScheme vs t) = showType vs t
+  digits base = reverse . go
+   where
+    go 0 = []
+    go k = (k `mod` base) : go (k `div` base)

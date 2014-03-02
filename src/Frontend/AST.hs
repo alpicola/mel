@@ -1,9 +1,9 @@
 module Frontend.AST where
 
+import Data.Bifunctor
+
 import Frontend.Types
 import Internal
-
-type Binder a = Maybe a
 
 data Value = IntValue Int
            | FloatValue Double
@@ -17,15 +17,34 @@ instance Show Value where
   show (BoolValue False) = "false"
   show UnitValue = "unit"
 
-data PrimOp = Eq | Neq | Lt | Le | Gt | Ge
-            | Plus | Minus | Times | Div
-            | FPlus | FMinus | FTimes | FDiv
-            deriving (Show, Eq, Ord)
+data PrimOp = Cmp CmpOp
+            | Arith ArithOp
+            | FArith FArithOp 
+            deriving Show
 
-isCompOp, isArithOp, isFArithOp :: PrimOp -> Bool
-isCompOp op = op <= Ge
-isArithOp op = Plus <= op && op <= Div
-isFArithOp op = FPlus <= op && op <= FDiv
+data CmpOp = Eq | Neq | Lt | Le | Gt | Ge
+data ArithOp = Plus | Minus | Times | Div
+data FArithOp = FPlus | FMinus | FTimes | FDiv
+
+instance Show CmpOp where
+  show Eq = "="
+  show Neq = "<>"
+  show Lt = "<"
+  show Le = "<="
+  show Gt = ">"
+  show Ge = ">="
+
+instance Show ArithOp where
+  show Plus = "+"
+  show Minus = "-"
+  show Times = "*"
+  show Div = "/"
+
+instance Show FArithOp where
+  show FPlus = "+."
+  show FMinus = "-."
+  show FTimes = "*."
+  show FDiv = "/."
 
 -- Raw AST
 
@@ -33,10 +52,11 @@ type MLProgram = ([MLTypeDecl], [MLDecl])
 
 type MLTypeDecl = ([Name], Name, [(Name, [MLType])])
 
-type MLBinder = Binder Name
+type MLBinder = Name
 
 data MLDecl = MLRecDecl MLBinder MLExpr
             | MLDecl MLBinder MLExpr
+            | MLTupleDecl [MLBinder] MLExpr
 
 data MLType = MLTypeVar Name
             | MLTypeCon [MLType] Name
@@ -59,13 +79,14 @@ data MLAlt = MLConCase Name [MLBinder] MLExpr
 
 -- Annotated AST
 
-type AnnProgram = ([DataType], AnnExpr)
+type AnnProgram = ([DataTypeDecl], AnnExpr)
 
-type AnnBinder = Binder (Name, Type)
-type AnnPolyBinder = Binder (Name, TypeScheme)
+type AnnMonoBinder = (Name, Type)
+type AnnPolyBinder = (Name, TypeScheme)
 
 data AnnDecl = ARecDecl AnnPolyBinder AnnExpr
              | ADecl AnnPolyBinder AnnExpr
+             | ATupleDecl [AnnPolyBinder] AnnExpr
              deriving Show
 
 data AnnExpr = AVar Name [Type] Type
@@ -73,13 +94,37 @@ data AnnExpr = AVar Name [Type] Type
              | AIf AnnExpr AnnExpr AnnExpr
              | ALet AnnDecl AnnExpr
              | AMatch AnnExpr [AnnAlt]
-             | AFun AnnBinder AnnExpr
+             | AFun AnnMonoBinder AnnExpr
              | AApply AnnExpr AnnExpr
              | AOp PrimOp [AnnExpr]
-             | ACon Name [Type] Type [AnnExpr]
+             | ACon Name Type [AnnExpr]
              | ATuple [AnnExpr]
              deriving Show
 
-data AnnAlt = AConCase Name [Type] [AnnBinder] AnnExpr
+data AnnAlt = AConCase Name Type [AnnMonoBinder] AnnExpr
             | ADefaultCase AnnExpr
             deriving Show
+
+substBinder :: TypeLike t => TypeSubst -> (Name, t) -> (Name, t)
+substBinder s = second $ subst s
+
+substExpr :: TypeSubst -> AnnExpr -> AnnExpr
+substExpr s (AVar n ts t) = AVar n (map (subst s) ts) (subst s t)
+substExpr s e@(AValue _) = e
+substExpr s (AIf e1 e2 e3) = AIf (substExpr s e1) (substExpr s e2) (substExpr s e3)
+substExpr s (ALet d e) = ALet (substDecl s d) (substExpr s e) 
+substExpr s (AMatch e alts) = AMatch (substExpr s e) (map (substAlt s) alts)
+substExpr s (AFun b e) = AFun (substBinder s b) (substExpr s e) 
+substExpr s (AApply e1 e2) = AApply (substExpr s e1) (substExpr s e2)
+substExpr s (AOp op es) = AOp op (map (substExpr s) es)
+substExpr s (ACon con t es) = ACon con (subst s t) (map (substExpr s) es)
+substExpr s (ATuple es) = ATuple (map (substExpr s) es)
+
+substDecl :: TypeSubst -> AnnDecl -> AnnDecl
+substDecl s (ARecDecl b e) = ARecDecl (substBinder s b) (substExpr s e)
+substDecl s (ADecl b e) = ADecl (substBinder s b) (substExpr s e)
+substDecl s (ATupleDecl bs e) = ATupleDecl (map (substBinder s) bs) (substExpr s e)
+
+substAlt :: TypeSubst -> AnnAlt -> AnnAlt
+substAlt s (AConCase con t bs e) = AConCase con (subst s t) (map (substBinder s) bs) (substExpr s e)
+substAlt s (ADefaultCase e) = ADefaultCase (substExpr s e)

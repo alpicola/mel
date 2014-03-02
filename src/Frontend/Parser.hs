@@ -13,16 +13,14 @@ import Text.Parsec.Language
 import qualified Text.Parsec.Token as T
 import Data.Either
 import Data.List
+import Data.Bifunctor
 
 import Frontend.AST
 import Frontend.Dianostic
 import Internal
 
 runParser' :: Parser a -> String -> Either Dianostic a
-runParser' p input =
-  case parse (whiteSpace *> p <* eof) "(input)" input of
-    Left e -> throwError $ strMsg $ show e
-    Right a -> return a
+runParser' p = first show . parse (whiteSpace *> p <* eof) "(input)"
 
 parseMLProgram :: String -> Either Dianostic MLProgram
 parseMLProgram = runParser' program
@@ -75,17 +73,24 @@ decl = reserved "let" >>
                                             <*> expr)
       <|> MLDecl <$> binder
                  <*> (flip (foldr MLFun) <$> many binder <* symbol "="
-                                         <*> expr))
+                                         <*> expr)
+      <|> parens (tuple <$> sepBy binder comma) <* symbol "=" <*> expr)
+ where
+  tuple [b] = MLDecl b 
+  tuple bs = MLTupleDecl bs
 
 expr :: Parser MLExpr
 expr = buildExpressionParser table term
  where
   table =
-    [ [unary "-" Minus, unary "-." FMinus]
-    , [bin "*" Times, bin "/" Div, bin "*." FTimes, bin "/." FDiv]
-    , [bin "+" Plus, bin "-" Minus, bin "+." FPlus, bin "-." FMinus]
-    , [bin "=" Eq, bin "<" Lt, bin "<=" Le, bin ">" Gt, bin ">=" Ge] 
-    , [Infix ((\x y -> MLCon "::" [x, y]) <$ reservedOp "::") AssocRight] 
+    [ [ unary "-" (Arith Minus), unary "-." (FArith FMinus) ]
+    , [ bin "*" (Arith Times), bin "/" (Arith Div)
+      , bin "*." (FArith FTimes), bin "/." (FArith FDiv) ]
+    , [ bin "+" (Arith Plus), bin "-" (Arith Minus)
+      , bin "+." (FArith FPlus), bin "-." (FArith FMinus)]
+    , [ bin "=" (Cmp Eq), bin "<>" (Cmp Neq), bin "<" (Cmp Lt)
+      , bin "<=" (Cmp Le), bin ">" (Cmp Gt), bin ">=" (Cmp Ge) ] 
+    , [ Infix ((\x y -> MLCon (Raw "::") [x, y]) <$ reservedOp "::") AssocRight ] 
     ]
   unary op t = Prefix ((MLOp t . (:[])) <$ reservedOp op)
   bin op t = Infix (((MLOp t .) . (\x y -> [x, y])) <$ reservedOp op) AssocLeft
@@ -106,18 +111,18 @@ term = MLIf <$ reserved "if"
    <|> MLCon <$> upperName <*> option [] (untuple <$> atom)
    <|> chainl1 atom (pure MLApply)
  where
-  untuple (MLTuple exprs) = exprs
-  untuple expr = [expr]
+  untuple (MLTuple es) = es
+  untuple e = [e]
 
 binder :: Parser MLBinder
-binder = try (Just <$> lowerName)
-     <|> Nothing <$ symbol "_"
+binder = try lowerName
+     <|> Erased <$ symbol "_"
 
 alt :: Parser MLAlt
 alt = MLConCase <$> upperName <*> many binder <* symbol "->" <*> expr
-  <|> MLConCase "::" <$> ((\x y -> [x, y]) <$> binder <* reservedOp "::" <*> binder)
+  <|> MLConCase (Raw "::") <$> ((\x y -> [x, y]) <$> binder <* reservedOp "::" <*> binder)
                      <* symbol "->" <*> expr
-  <|> MLConCase "[]" [] <$ symbol "[" <* symbol "]" <* symbol "->" <*> expr
+  <|> MLConCase (Raw "[]") [] <$ symbol "[" <* symbol "]" <* symbol "->" <*> expr
   <|> MLDefaultCase <$ symbol "_" <* symbol "->" <*> expr
 
 atom :: Parser MLExpr
@@ -127,10 +132,10 @@ atom = MLVar <$> lowerName
    <|> parens (tuple <$> sepBy expr comma)
  where
   tuple [] = MLValue UnitValue
-  tuple [expr] = expr
-  tuple exprs = MLTuple exprs
-  cons x y = MLCon "::" [x, y]
-  nil = MLCon "[]" []
+  tuple [e] = e
+  tuple es = MLTuple es
+  cons x y = MLCon (Raw "::") [x, y]
+  nil = MLCon (Raw "[]") []
 
 constant :: Parser Value
 constant = either (IntValue . fromInteger) FloatValue <$> number 
@@ -176,12 +181,12 @@ semi = T.semi lexer
 comma = T.comma lexer
 whiteSpace = T.whiteSpace lexer
 
-upperName = T.lexeme lexer $ (:) <$> upper <*> many (T.identLetter mlDef)
+upperName = T.lexeme lexer $ (Raw .) . (:) <$> upper <*> many (T.identLetter mlDef)
 lowerName = T.lexeme lexer $ try $ do
-  name <- (:) <$> (lower <|> char '_') <*> many (T.identLetter mlDef)
+  name <- (:) <$> T.identStart mlDef <*> many (T.identLetter mlDef)
   if elem name reservedWords
     then unexpected ("reserved word " ++ show name)
-    else return name
+    else return $ Raw name
 
 number = try $ fmap fmap sign <*> T.naturalOrFloat lexer
  where
