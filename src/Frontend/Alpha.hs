@@ -34,6 +34,8 @@ alphaBinder (name, t) = do
   return $ (Just (name, name'), (name', t))
 
 alphaExpr :: AnnExpr -> Alpha AnnExpr
+alphaExpr (AVar name@(External _) ts t) =
+  return $ AVar name ts t
 alphaExpr (AVar name ts t) = do
   name' <- asks $ fromJust . M.lookup name
   return $ AVar name' ts t

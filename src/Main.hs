@@ -17,6 +17,6 @@ main = do
   case args of
     [file] -> do
       src <- readFile file
-      putStrLn $ either show (show . snd) $ do
-        prog <- parseMLProgram src >>= runFresh . runErrorT . elaborate
+      putStrLn $ either id (show . snd) $ do
+        prog <- parseMLProgram src >>= elaborate
         return . runFresh $ alpha prog >>= monomorphise

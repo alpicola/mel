@@ -76,18 +76,19 @@ decl = reserved "let" >>
                                          <*> expr)
       <|> parens (tuple <$> sepBy binder comma) <* symbol "=" <*> expr)
  where
+  tuple [] = MLUnitDecl
   tuple [b] = MLDecl b 
   tuple bs = MLTupleDecl bs
 
-expr :: Parser MLExpr
-expr = buildExpressionParser table term
+expr' :: Parser MLExpr
+expr' = buildExpressionParser table term
  where
   table =
     [ [ unary "-" (Arith Minus), unary "-." (FArith FMinus) ]
     , [ bin "*" (Arith Times), bin "/" (Arith Div)
       , bin "*." (FArith FTimes), bin "/." (FArith FDiv) ]
     , [ bin "+" (Arith Plus), bin "-" (Arith Minus)
-      , bin "+." (FArith FPlus), bin "-." (FArith FMinus)]
+      , bin "+." (FArith FPlus), bin "-." (FArith FMinus) ]
     , [ bin "=" (Cmp Eq), bin "<>" (Cmp Neq), bin "<" (Cmp Lt)
       , bin "<=" (Cmp Le), bin ">" (Cmp Gt), bin ">=" (Cmp Ge) ] 
     , [ Infix ((\x y -> MLCon (Raw "::") [x, y]) <$ reservedOp "::") AssocRight ] 
@@ -95,11 +96,14 @@ expr = buildExpressionParser table term
   unary op t = Prefix ((MLOp t . (:[])) <$ reservedOp op)
   bin op t = Infix (((MLOp t .) . (\x y -> [x, y])) <$ reservedOp op) AssocLeft
 
+expr :: Parser MLExpr
+expr = chainr1 expr' ((MLLet . MLUnitDecl) <$ semi)
+
 term :: Parser MLExpr
 term = MLIf <$ reserved "if"
-            <*> expr <* reserved "then"
-            <*> expr <* reserved "else"
-            <*> expr
+            <*> expr' <* reserved "then"
+            <*> expr' <* reserved "else"
+            <*> expr'
    <|> MLLet <$> decl <* reserved "in"
              <*> expr
    <|> MLMatch <$ reserved "match"
@@ -114,7 +118,7 @@ term = MLIf <$ reserved "if"
   untuple (MLTuple es) = es
   untuple e = [e]
 
-binder :: Parser MLBinder
+binder :: Parser Binder
 binder = try lowerName
      <|> Erased <$ symbol "_"
 

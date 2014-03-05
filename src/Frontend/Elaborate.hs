@@ -15,13 +15,15 @@ import Data.Bifunctor
 import Frontend.AST
 import Frontend.Types
 import Frontend.Dianostic
+import Frontend.Builtins
 import Internal
 
-elaborate :: MLProgram -> ErrorT Dianostic Fresh AnnProgram
+elaborate :: MLProgram -> Either Dianostic AnnProgram
 elaborate (tdecls, decls) = do
-  typs <- liftError $ (builtinDataTypes ++) <$> buildDataTypes tdecls
+  let conEnv = buildTypeConEnv builtinDataTypes
+  typs <- (builtinDataTypes ++) <$> buildDataTypes conEnv tdecls
   let body = foldr MLLet (MLValue UnitValue) decls
-      env = (M.empty, buildConEnv typs)
+      env = (M.map (TypeScheme []) builtinFunctons, buildConEnv typs)
   ((_, body'), s) <- runTC env $ tcExpr body
   return (typs, substExpr s body')
 
@@ -30,22 +32,8 @@ elaborate (tdecls, decls) = do
 type TypeConEnv = Map Name Int 
 type ConEnv = Map Name (Int, Name, [Type])
 
-builtinTypeConEnv :: TypeConEnv
-builtinTypeConEnv =
-  M.fromList $ concat $ zipWith (map . flip (,)) [0..] builtins
- where
-  builtins = [ [Raw "int", Raw "float", Raw "bool", Raw "unit"]
-             , [Raw "list", Raw "option"]
-             ]
-
-builtinDataTypes :: [DataTypeDecl]
-builtinDataTypes =
-  [ (1, Raw "list", [(Raw "[]", []), (Raw "::", [TypeVar 0, DataType [TypeVar 0] (Raw "list")])])
-  , (1, Raw "option", [(Raw "None", []), (Raw "Some", [TypeVar 0])])
-  ]
-
-buildDataTypes :: [MLTypeDecl] -> Either Dianostic [DataTypeDecl]
-buildDataTypes decls = evalStateT (mapM build decls) builtinTypeConEnv
+buildDataTypes :: TypeConEnv -> [MLTypeDecl] -> Either Dianostic [DataTypeDecl]
+buildDataTypes env decls = evalStateT (mapM build decls) env
  where
   build (params, tcon, cons) = do
     let len = length params
@@ -62,17 +50,23 @@ evalType params env t = eval t
     case elemIndex tvar params of
       Nothing -> unboundTypeVar tvar
       Just i -> return $ TypeVar i
+  eval (MLTypeCon ts n@(Raw "int"))
+    | null ts   = return IntType
+    | otherwise = typeConArgsNum n (length ts) 0
+  eval (MLTypeCon ts n@(Raw "float"))
+    | null ts   = return FloatType
+    | otherwise = typeConArgsNum n (length ts) 0
+  eval (MLTypeCon ts n@(Raw "bool"))
+    | null ts   = return BoolType
+    | otherwise = typeConArgsNum n (length ts) 0
+  eval (MLTypeCon ts n@(Raw "unit"))
+    | null ts   = return UnitType
+    | otherwise = typeConArgsNum n (length ts) 0
   eval (MLTypeCon ts tcon) =
     case M.lookup tcon env of
       Nothing -> unboundTypeCon tcon
       Just len
-        | len == length ts ->
-          case tcon of
-            Raw "int" -> return IntType
-            Raw "float" -> return FloatType
-            Raw "bool" -> return BoolType
-            Raw "unit" -> return UnitType
-            _ -> flip DataType tcon <$> mapM eval ts
+        | len == length ts -> flip DataType tcon <$> mapM eval ts
         | otherwise -> typeConArgsNum tcon (length ts) len 
   eval (MLFunType e e') = FunType <$> eval e <*> eval e'
   eval (MLTupleType es) = TupleType <$> mapM eval es
@@ -83,22 +77,25 @@ buildConEnv typs = M.fromList $ do
   (con, ts) <- cons
   return (con, (i, tcon, ts))
 
+buildTypeConEnv :: [DataTypeDecl] -> TypeConEnv
+buildTypeConEnv = M.fromList . map (\(i, tcon, _) -> (tcon, i))
+
 -- Typecheck
 
-type TCEnv = (TypeEnv, ConEnv)
+type TCEnv = (PolyTypeEnv, ConEnv)
 
 newtype TC a = TC
   { unTC :: ReaderT TCEnv (StateT TypeSubst (ErrorT Dianostic Fresh)) a }
  deriving ( Functor, Applicative, Monad, MonadError Dianostic
           , MonadReader TCEnv, MonadState TypeSubst, MonadFresh )
 
-runTC :: TCEnv -> TC a -> ErrorT Dianostic Fresh (a, TypeSubst)
-runTC env = flip runStateT M.empty . flip runReaderT env . unTC
+runTC :: TCEnv -> TC a -> Either Dianostic (a, TypeSubst)
+runTC env = runFresh . runErrorT . flip runStateT M.empty . flip runReaderT env . unTC
 
 genVar :: TC Type
 genVar = TypeVar <$> fresh
 
-withBind :: [AnnPolyBinder] -> TC a -> TC a
+withBind :: [PolyBinder] -> TC a -> TC a
 withBind bs = local $ first $ flip (foldr $ uncurry M.insert) bs'
  where
   bs' = filter (not . isErased . fst) bs
@@ -147,10 +144,15 @@ tcExpr :: MLExpr -> TC (Type, AnnExpr)
 tcExpr (MLVar name) = do
   env <- asks fst
   case M.lookup name env of
-    Nothing -> unboundVar name
     Just sc -> do
       (targs, t) <- instantiate sc
       return (t, AVar name targs t)
+    Nothing -> do
+      let name' = case name of Raw n -> External n
+      case M.lookup name' env of
+        Just (TypeScheme [] t) ->
+          return (t, AVar name' [] t)
+        Nothing -> unboundVar name
 tcExpr (MLValue val) =
   let t = case val of
             IntValue _ -> IntType
@@ -224,23 +226,31 @@ tcExpr (MLTuple es) = do
   (ts, es') <- unzip <$> mapM tcExpr es
   return (TupleType ts, ATuple es')
 
-tcDecl :: MLDecl -> TC ([AnnPolyBinder], AnnDecl)
+tcDecl :: MLDecl -> TC ([PolyBinder], AnnDecl)
 tcDecl (MLRecDecl b e) = do
   v <- genVar
   (t, e') <- withBind [(b, TypeScheme [] v)] $ tcExpr e
-  sc <- generalize t
+  sc <- if isValue e' then generalize t
+                      else return $ TypeScheme [] t
   let b' = (b, sc)
   return ([b'], ARecDecl b' e')
 tcDecl (MLDecl b e) = do
   (t, e') <- tcExpr e
-  sc <- generalize t
+  sc <- if isValue e' then generalize t
+                      else return $ TypeScheme [] t
   let b' = (b, sc)
   return ([b'], ADecl b' e')
+tcDecl (MLUnitDecl e) = do
+  (t, e') <- tcExpr e
+  unify UnitType t
+  let b = (Erased, TypeScheme [] t)
+  return ([], ADecl b e')
 tcDecl (MLTupleDecl bs e) = do
   vs <- mapM (const genVar) bs
   (t, e') <- tcExpr e
   unify t (TupleType vs)
-  sc <- generalize t
+  sc <- if isValue e' then generalize t
+                      else return $ TypeScheme [] t
   let bs' = case sc of
               TypeScheme vs' (TupleType ts) ->
                 zip bs $ map (TypeScheme vs') ts

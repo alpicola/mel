@@ -48,15 +48,16 @@ instance Show FArithOp where
 
 -- Raw AST
 
+type Binder = Name
+
 type MLProgram = ([MLTypeDecl], [MLDecl])
 
 type MLTypeDecl = ([Name], Name, [(Name, [MLType])])
 
-type MLBinder = Name
-
-data MLDecl = MLRecDecl MLBinder MLExpr
-            | MLDecl MLBinder MLExpr
-            | MLTupleDecl [MLBinder] MLExpr
+data MLDecl = MLRecDecl Binder MLExpr
+            | MLDecl Binder MLExpr
+            | MLUnitDecl MLExpr
+            | MLTupleDecl [Binder] MLExpr
 
 data MLType = MLTypeVar Name
             | MLTypeCon [MLType] Name
@@ -68,25 +69,25 @@ data MLExpr = MLVar Name
             | MLIf MLExpr MLExpr MLExpr
             | MLLet MLDecl MLExpr
             | MLMatch MLExpr [MLAlt]
-            | MLFun MLBinder MLExpr
+            | MLFun Binder MLExpr
             | MLApply MLExpr MLExpr
             | MLOp PrimOp [MLExpr]
             | MLCon Name [MLExpr]
             | MLTuple [MLExpr]
 
-data MLAlt = MLConCase Name [MLBinder] MLExpr
+data MLAlt = MLConCase Name [Binder] MLExpr
            | MLDefaultCase MLExpr
 
 -- Annotated AST
 
+type MonoBinder = (Name, Type)
+type PolyBinder = (Name, TypeScheme)
+
 type AnnProgram = ([DataTypeDecl], AnnExpr)
 
-type AnnMonoBinder = (Name, Type)
-type AnnPolyBinder = (Name, TypeScheme)
-
-data AnnDecl = ARecDecl AnnPolyBinder AnnExpr
-             | ADecl AnnPolyBinder AnnExpr
-             | ATupleDecl [AnnPolyBinder] AnnExpr
+data AnnDecl = ARecDecl PolyBinder AnnExpr
+             | ADecl PolyBinder AnnExpr
+             | ATupleDecl [PolyBinder] AnnExpr
              deriving Show
 
 data AnnExpr = AVar Name [Type] Type
@@ -94,16 +95,24 @@ data AnnExpr = AVar Name [Type] Type
              | AIf AnnExpr AnnExpr AnnExpr
              | ALet AnnDecl AnnExpr
              | AMatch AnnExpr [AnnAlt]
-             | AFun AnnMonoBinder AnnExpr
+             | AFun MonoBinder AnnExpr
              | AApply AnnExpr AnnExpr
              | AOp PrimOp [AnnExpr]
              | ACon Name Type [AnnExpr]
              | ATuple [AnnExpr]
              deriving Show
 
-data AnnAlt = AConCase Name Type [AnnMonoBinder] AnnExpr
+data AnnAlt = AConCase Name Type [MonoBinder] AnnExpr
             | ADefaultCase AnnExpr
             deriving Show
+
+isValue :: AnnExpr -> Bool
+isValue (AVar _ _ _) = True
+isValue (AValue _) = True
+isValue (AFun _ _) = True
+isValue (ACon _ _ _) = True
+isValue (ATuple _) = True
+isValue _ = False
 
 substBinder :: TypeLike t => TypeSubst -> (Name, t) -> (Name, t)
 substBinder s = second $ subst s
