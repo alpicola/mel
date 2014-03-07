@@ -3,10 +3,11 @@ module Frontend.AST where
 import Data.Bifunctor
 
 import Frontend.Types
+import Frontend.Primitives
 import Internal
 
 data Value = IntValue Int
-           | FloatValue Double
+           | FloatValue Float
            | BoolValue Bool
            | UnitValue
 
@@ -22,35 +23,6 @@ typeOf (IntValue _) = IntType
 typeOf (FloatValue _) = FloatType
 typeOf (BoolValue _) = BoolType
 typeOf UnitValue = UnitType
-
-data PrimOp = Cmp CmpOp
-            | Arith ArithOp
-            | FArith FArithOp 
-            deriving Show
-
-data CmpOp = Eq | Neq | Lt | Le | Gt | Ge
-data ArithOp = Plus | Minus | Times | Div
-data FArithOp = FPlus | FMinus | FTimes | FDiv
-
-instance Show CmpOp where
-  show Eq = "="
-  show Neq = "<>"
-  show Lt = "<"
-  show Le = "<="
-  show Gt = ">"
-  show Ge = ">="
-
-instance Show ArithOp where
-  show Plus = "+"
-  show Minus = "-"
-  show Times = "*"
-  show Div = "/"
-
-instance Show FArithOp where
-  show FPlus = "+."
-  show FMinus = "-."
-  show FTimes = "*."
-  show FDiv = "/."
 
 -- Raw AST
 

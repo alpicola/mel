@@ -9,6 +9,7 @@ import Data.Bifunctor
 
 import Frontend.AST
 import Frontend.Types
+import Frontend.Primitives
 import K.AST
 
 import Internal

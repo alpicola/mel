@@ -13,7 +13,6 @@ import Data.Bitraversable
 
 import Frontend.AST
 import Frontend.Types
-import Frontend.Dianostic
 import Frontend.Alpha
 import Internal
 

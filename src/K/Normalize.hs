@@ -2,7 +2,6 @@
 module K.Normalize (normalize) where
 
 import Control.Applicative
-import Control.Monad
 import Control.Monad.Reader
 import Data.Maybe
 import qualified Data.Map as M
@@ -12,6 +11,7 @@ import Data.Bitraversable
 import Frontend.AST
 import Frontend.Types
 import Frontend.Builtins
+import Frontend.Primitives
 import K.AST
 import Internal
 

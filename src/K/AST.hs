@@ -2,6 +2,7 @@ module K.AST where
 
 import Frontend.AST
 import Frontend.Types
+import Frontend.Primitives
 
 import Internal
 
@@ -39,7 +40,7 @@ flattenExpr (KMatch n alts) =
 flattenExpr (KLet (KDecl b e1) e2) = go $ flattenExpr e1
  where
   go (KLet d e) = KLet d $ go e
-  go e = KLet (KDecl b e) e2
+  go e = KLet (KDecl b e) $ flattenExpr e2
 flattenExpr e = e
 
 flattenAlt :: KAlt -> KAlt

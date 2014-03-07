@@ -13,8 +13,11 @@ import Data.List
 import Data.Bifunctor
 
 import Frontend.AST
+import Frontend.Primitives
 import Frontend.Dianostic
 import Internal
+
+import GHC.Float (double2Float)
 
 runParser' :: Parser a -> String -> Either Dianostic a
 runParser' p = first show . parse (whiteSpace *> p <* eof) "(input)"
@@ -140,7 +143,7 @@ atom = MLVar <$> lowerName
   nil = MLCon (Raw "[]") []
 
 constant :: Parser Value
-constant = either (IntValue . fromInteger) FloatValue <$> number 
+constant = either (IntValue . fromInteger) (FloatValue . double2Float) <$> number 
        <|> BoolValue True <$ reserved "true"
        <|> BoolValue False <$ reserved "false"
 

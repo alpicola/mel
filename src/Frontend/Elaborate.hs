@@ -14,8 +14,9 @@ import Data.Bifunctor
 
 import Frontend.AST
 import Frontend.Types
-import Frontend.Dianostic
+import Frontend.Primitives
 import Frontend.Builtins
+import Frontend.Dianostic
 import Internal
 
 elaborate :: MLProgram -> Either Dianostic AnnProgram
