@@ -23,7 +23,7 @@ elaborate (tdecls, decls) = do
   let conEnv = buildTypeConEnv builtinDataTypes
   typs <- (builtinDataTypes ++) <$> buildDataTypes conEnv tdecls
   let body = foldr MLLet (MLValue UnitValue) decls
-      env = (M.map (TypeScheme []) builtinFunctons, buildConEnv typs)
+      env = (M.map (TypeScheme []) builtinFunctions, buildConEnv typs)
   ((_, body'), s) <- runTC env $ tcExpr body
   return (typs, substExpr s body')
 
@@ -146,20 +146,15 @@ tcExpr (MLVar name) = do
   case M.lookup name env of
     Just sc -> do
       (targs, t) <- instantiate sc
-      return (t, AVar name targs t)
+      return (t, AVar name targs)
     Nothing -> do
       let name' = case name of Raw n -> External n
       case M.lookup name' env of
         Just (TypeScheme [] t) ->
-          return (t, AVar name' [] t)
+          return (t, AVar name' [])
         Nothing -> unboundVar name
 tcExpr (MLValue val) =
-  let t = case val of
-            IntValue _ -> IntType
-            FloatValue _ -> FloatType
-            BoolValue _ -> BoolType
-            UnitValue -> UnitType
-  in return (t, AValue val)
+  return (typeOf val, AValue val)
 tcExpr (MLIf e1 e2 e3) = do
   (t1, e1') <- tcExpr e1
   unify t1 BoolType

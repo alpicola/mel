@@ -8,7 +8,7 @@ data Name = Raw String
 
 instance Show Name where
  show (Raw name) = name
- show (Renamed name i) = name ++ ('$' : show i)
+ show (Renamed name i) = name ++ ('_' : show i)
  show (External name) = name
  show Erased = "_"
 

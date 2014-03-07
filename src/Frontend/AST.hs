@@ -15,7 +15,13 @@ instance Show Value where
   show (FloatValue f) = show f
   show (BoolValue True) = "true"
   show (BoolValue False) = "false"
-  show UnitValue = "unit"
+  show UnitValue = "()"
+
+typeOf :: Value -> Type
+typeOf (IntValue _) = IntType
+typeOf (FloatValue _) = FloatType
+typeOf (BoolValue _) = BoolType
+typeOf UnitValue = UnitType
 
 data PrimOp = Cmp CmpOp
             | Arith ArithOp
@@ -54,11 +60,6 @@ type MLProgram = ([MLTypeDecl], [MLDecl])
 
 type MLTypeDecl = ([Name], Name, [(Name, [MLType])])
 
-data MLDecl = MLRecDecl Binder MLExpr
-            | MLDecl Binder MLExpr
-            | MLUnitDecl MLExpr
-            | MLTupleDecl [Binder] MLExpr
-
 data MLType = MLTypeVar Name
             | MLTypeCon [MLType] Name
             | MLFunType MLType MLType
@@ -75,6 +76,11 @@ data MLExpr = MLVar Name
             | MLCon Name [MLExpr]
             | MLTuple [MLExpr]
 
+data MLDecl = MLRecDecl Binder MLExpr
+            | MLDecl Binder MLExpr
+            | MLUnitDecl MLExpr
+            | MLTupleDecl [Binder] MLExpr
+
 data MLAlt = MLConCase Name [Binder] MLExpr
            | MLDefaultCase MLExpr
 
@@ -85,12 +91,7 @@ type PolyBinder = (Name, TypeScheme)
 
 type AnnProgram = ([DataTypeDecl], AnnExpr)
 
-data AnnDecl = ARecDecl PolyBinder AnnExpr
-             | ADecl PolyBinder AnnExpr
-             | ATupleDecl [PolyBinder] AnnExpr
-             deriving Show
-
-data AnnExpr = AVar Name [Type] Type
+data AnnExpr = AVar Name [Type]
              | AValue Value
              | AIf AnnExpr AnnExpr AnnExpr
              | ALet AnnDecl AnnExpr
@@ -102,12 +103,17 @@ data AnnExpr = AVar Name [Type] Type
              | ATuple [AnnExpr]
              deriving Show
 
+data AnnDecl = ARecDecl PolyBinder AnnExpr
+             | ADecl PolyBinder AnnExpr
+             | ATupleDecl [PolyBinder] AnnExpr
+             deriving Show
+
 data AnnAlt = AConCase Name Type [MonoBinder] AnnExpr
             | ADefaultCase AnnExpr
             deriving Show
 
 isValue :: AnnExpr -> Bool
-isValue (AVar _ _ _) = True
+isValue (AVar _ _) = True
 isValue (AValue _) = True
 isValue (AFun _ _) = True
 isValue (ACon _ _ _) = True
@@ -118,7 +124,7 @@ substBinder :: TypeLike t => TypeSubst -> (Name, t) -> (Name, t)
 substBinder s = second $ subst s
 
 substExpr :: TypeSubst -> AnnExpr -> AnnExpr
-substExpr s (AVar n ts t) = AVar n (map (subst s) ts) (subst s t)
+substExpr s (AVar n ts) = AVar n (map (subst s) ts)
 substExpr s e@(AValue _) = e
 substExpr s (AIf e1 e2 e3) = AIf (substExpr s e1) (substExpr s e2) (substExpr s e3)
 substExpr s (ALet d e) = ALet (substDecl s d) (substExpr s e) 

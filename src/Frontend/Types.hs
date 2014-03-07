@@ -92,3 +92,13 @@ showTypeVar i = '\'' : map (chr . (97 +)) (digits 26 i)
    where
     go 0 = []
     go k = (k `mod` base) : go (k `div` base)
+
+returnType :: Type -> Int -> Type
+returnType t 0 = t
+returnType (FunType _ t) i = returnType t (i - 1)
+returnType t _ = t
+
+prefixOfType :: Type -> String
+prefixOfType (FunType _ _) = "f"
+prefixOfType (TupleType _) = "t"
+prefixOfType t = take 1 $ show t

@@ -1,4 +1,4 @@
-module Frontend.Alpha (alpha) where
+module Frontend.Alpha (alpha, Alpha, runAlpha, alphaExpr) where
 
 import Control.Applicative
 import Control.Monad.Reader
@@ -14,31 +14,30 @@ import Frontend.Dianostic
 import Internal
 
 alpha :: AnnProgram -> Fresh AnnProgram
-alpha (typs, expr) = (,) typs <$> runAlpha (alphaExpr expr)
+alpha (typs, expr) = (,) typs <$> runAlpha M.empty (alphaExpr expr)
 
 -- Alpha Transform
 
 type AlphaEnv = Map Name Name
 type Alpha a = ReaderT AlphaEnv Fresh a
 
-runAlpha :: Alpha a -> Fresh a
-runAlpha = flip runReaderT M.empty
+runAlpha :: AlphaEnv -> Alpha a -> Fresh a
+runAlpha = flip runReaderT
 
 withSubst :: [(Name, Name)] -> Alpha a -> Alpha a
 withSubst s = local $ flip (foldr $ uncurry M.insert) s
 
 alphaBinder :: TypeLike t => (Name, t) -> Alpha (Maybe (Name, Name), (Name, t))
-alphaBinder b@(Erased, _) = return (Nothing, b)
 alphaBinder (name, t) = do
   name' <- flip rename name <$> fresh
-  return $ (Just (name, name'), (name', t))
+  if name' == name
+    then return $ (Nothing, (name, t))
+    else return $ (Just (name, name'), (name', t))
 
 alphaExpr :: AnnExpr -> Alpha AnnExpr
-alphaExpr (AVar name@(External _) ts t) =
-  return $ AVar name ts t
-alphaExpr (AVar name ts t) = do
-  name' <- asks $ fromJust . M.lookup name
-  return $ AVar name' ts t
+alphaExpr (AVar name ts) = do
+  name' <- asks $ fromMaybe name . M.lookup name
+  return $ AVar name' ts
 alphaExpr (AValue val) = return $ AValue val
 alphaExpr (AIf e1 e2 e3) =
   AIf <$> alphaExpr e1 <*> alphaExpr e2 <*> alphaExpr e3

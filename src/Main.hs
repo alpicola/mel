@@ -10,6 +10,10 @@ import Frontend.Elaborate
 import Frontend.Alpha
 import Frontend.Monomorphise
 
+import K.AST
+import K.Normalize
+import K.PrettyPrint
+
 import Internal
 
 main = do
@@ -17,6 +21,6 @@ main = do
   case args of
     [file] -> do
       src <- readFile file
-      putStrLn $ either id (show . snd) $ do
+      putStrLn $ either id prettyPrint $ do
         prog <- parseMLProgram src >>= elaborate
-        return . runFresh $ alpha prog >>= monomorphise
+        return . runFresh $ alpha prog >>= monomorphise >>= normalize

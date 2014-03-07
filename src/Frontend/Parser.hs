@@ -1,7 +1,4 @@
-module Frontend.Parser
-  ( parseMLProgram
-  , parseMLExpr
-  ) where
+module Frontend.Parser (parseMLProgram, parseMLExpr) where
 
 import Control.Applicative hiding ((<|>), many, optional)
 import Control.Monad.Error
@@ -33,7 +30,8 @@ parseMLExpr = runParser' expr
 program :: Parser MLProgram
 program = fmap partitionEithers $ sepEndBy1 decl' $ optional $ symbol ";;"
  where
-  decl' = Left <$> tdecl <|> Right <$> decl
+  decl' = Left <$> tdecl
+      <|> Right <$> (try (MLDecl Erased <$> expr) <|> decl)
 
 tdecl :: Parser MLTypeDecl
 tdecl = (,,) <$ reserved "type"
@@ -107,7 +105,7 @@ term = MLIf <$ reserved "if"
    <|> MLLet <$> decl <* reserved "in"
              <*> expr
    <|> MLMatch <$ reserved "match"
-               <*> expr <* reserved "with"
+               <*> expr <* reserved "with" <* optional (symbol "|")
                <*> sepEndBy1 alt (symbol "|")
    <|> flip (foldr MLFun) <$ reserved "fun"
                           <*> many1 binder <* symbol "->"

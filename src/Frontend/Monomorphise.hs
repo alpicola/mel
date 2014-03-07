@@ -14,6 +14,7 @@ import Data.Bitraversable
 import Frontend.AST
 import Frontend.Types
 import Frontend.Dianostic
+import Frontend.Alpha
 import Internal
 
 monomorphise :: AnnProgram -> Fresh AnnProgram
@@ -63,17 +64,16 @@ monoDataType (i, tcon, cons) = do
       return (i, tcon', cons')
 
 monoExpr :: AnnExpr -> Mono AnnExpr
-monoExpr (AVar name targs t) = do
-  t' <- update t
+monoExpr (AVar name []) = return $ AVar name []
+monoExpr (AVar name targs) = do
   targs' <- mapM update targs
   use <- gets $ fromMaybe M.empty . M.lookup name . snd
   case M.lookup targs' use of
-    Just name' -> return $ AVar name' [] t'
-    Nothing | null targs -> return $ AVar name [] t' 
-            | otherwise  -> do
+    Just name' -> return $ AVar name' []
+    Nothing -> do
       name' <- flip rename name <$> fresh
       modify $ second $ M.insert name $ M.insert targs' name' use
-      return $ AVar name' [] t'
+      return $ AVar name' []
 monoExpr (AValue val) = return $ AValue val
 monoExpr (AIf e1 e2 e3) =
   AIf <$> monoExpr e1 <*> monoExpr e2 <*> monoExpr e3
@@ -103,10 +103,11 @@ monoDecl (ARecDecl (name, TypeScheme [] t) e) = do
 monoDecl (ARecDecl (name, TypeScheme vs t) e) = do
   use <- gets $ fromMaybe M.empty . M.lookup name . snd
   forM (M.toList use) $ \(targs, name') -> do
-    modify $ second $ M.insert name $ M.insert [] name' use
     local (flip (foldr $ uncurry bind) $ zip vs targs) $ do
       t' <- update t
-      ARecDecl (name', TypeScheme [] t') <$> monoExpr e
+      let alphaEnv = M.singleton name name'
+      e' <- Mono . lift . lift $ runAlpha alphaEnv $ alphaExpr e
+      ARecDecl (name', TypeScheme [] t') <$> monoExpr e'
 monoDecl (ADecl (name, TypeScheme [] t) e) = do
   t' <- update t
   (:[]) . ADecl (name, TypeScheme [] t') <$> monoExpr e
@@ -115,7 +116,8 @@ monoDecl (ADecl (name, TypeScheme vs t) e) = do
   forM (M.toList use) $ \(targs, name') ->
     local (flip (foldr $ uncurry bind) $ zip vs targs) $ do
       t' <- update t
-      ADecl (name', TypeScheme [] t') <$> monoExpr e
+      e' <- Mono . lift . lift $ runAlpha M.empty $ alphaExpr e
+      ADecl (name', TypeScheme [] t') <$> monoExpr e'
 monoDecl (ATupleDecl bs@((_, TypeScheme [] _):_) e) = do
   let ts = map (\(_, TypeScheme _ t) -> t) bs
   bs' <- zip (map fst bs) <$> mapM (update >=> return . TypeScheme []) ts
@@ -128,7 +130,8 @@ monoDecl (ATupleDecl bs@((_, TypeScheme vs _):_) e) = do
   forM use $ \(targs, names) ->
     local (flip (foldr $ uncurry bind) $ zip vs targs) $ do
       bs' <- zip names <$> mapM (update >=> return . TypeScheme []) ts 
-      ATupleDecl bs' <$> monoExpr e
+      e' <- Mono . lift . lift $ runAlpha M.empty $ alphaExpr e
+      ATupleDecl bs' <$> monoExpr e'
 
 monoAlt :: AnnAlt -> Mono AnnAlt
 monoAlt (AConCase con t bs e) = do
