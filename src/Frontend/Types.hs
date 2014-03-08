@@ -82,7 +82,7 @@ showType vs t =
   f p (FunType t1 t2) = let s = f 1 t1 ++ " -> " ++ f 0 t2
                         in if p > 0 then "(" ++ s ++ ")" else s 
   f _ (TupleType ts) = "(" ++ intercalate ", " (map (f 0) ts) ++ ")" 
-  f p (DataType ts n) = let s = intercalate " " $ show n : map (f 2) ts
+  f p (DataType ts n) = let s = intercalate " " (map (f 2) ts) ++ " " ++ show n
                         in if p > 1 then "(" ++ s ++ ")" else s
 
 showTypeVar :: TypeVar -> String
@@ -101,4 +101,5 @@ returnType t _ = t
 prefixOfType :: Type -> String
 prefixOfType (FunType _ _) = "f"
 prefixOfType (TupleType _) = "t"
+prefixOfType (DataType _ n) = take 1 $ show n
 prefixOfType t = take 1 $ show t

@@ -13,6 +13,7 @@ import Data.List
 import Data.Bifunctor
 
 import Frontend.AST
+import Frontend.Values
 import Frontend.Primitives
 import Frontend.Dianostic
 import Internal

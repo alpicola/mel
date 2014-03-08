@@ -53,8 +53,8 @@ alphaExpr (AApply e1 e2) =
   AApply <$> alphaExpr e1 <*> alphaExpr e2
 alphaExpr (AOp op es) =
   AOp op <$> mapM alphaExpr es
-alphaExpr (ACon con t es) =
-  ACon con t <$> mapM alphaExpr es
+alphaExpr (ACon con tcon ts es) =
+  ACon con tcon ts <$> mapM alphaExpr es
 alphaExpr (ATuple es) =
   ATuple <$> mapM alphaExpr es
 
@@ -70,8 +70,8 @@ alphaDecl (ATupleDecl bs e) = do
   (,) s . ATupleDecl bs' <$> alphaExpr e
 
 alphaAlt :: AnnAlt -> Alpha AnnAlt
-alphaAlt (AConCase con t bs e) = do
+alphaAlt (AConCase con tcon ts bs e) = do
   (s, bs') <- first catMaybes . unzip <$> mapM alphaBinder bs 
-  AConCase con t bs' <$> withSubst s (alphaExpr e)
+  AConCase con tcon ts bs' <$> withSubst s (alphaExpr e)
 alphaAlt (ADefaultCase e) =
   ADefaultCase <$> alphaExpr e

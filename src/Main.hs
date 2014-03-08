@@ -1,6 +1,7 @@
 module Main where
 
 import Control.Monad.Error
+import Data.Bifunctor
 import System.Environment
 
 import Frontend.AST

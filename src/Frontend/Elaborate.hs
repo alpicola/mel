@@ -14,6 +14,7 @@ import Data.Bifunctor
 
 import Frontend.AST
 import Frontend.Types
+import Frontend.Values
 import Frontend.Primitives
 import Frontend.Builtins
 import Frontend.Dianostic
@@ -216,7 +217,7 @@ tcExpr (MLCon con es) = do
         (ts'', es') <- unzip <$> mapM tcExpr es
         zipWithM_ unify ts' ts''
         let t = DataType targs tcon
-        return (t, ACon con t es')
+        return (t, ACon con tcon targs es')
       | otherwise -> conArgsNum con (length ts) (length es)  
 tcExpr (MLTuple es) = do
   (ts, es') <- unzip <$> mapM tcExpr es
@@ -263,7 +264,7 @@ tcAlt (MLConCase con bs e) = do
       let t = DataType targs tcon
           bs' = zip bs ts'
       (t', e') <- withBind (map (second $ TypeScheme []) bs') $ tcExpr e
-      return (t, t', AConCase con t bs' e')
+      return (t, t', AConCase con tcon targs bs' e')
 tcAlt (MLDefaultCase e) = do
   v <- genVar
   (t, e') <- tcExpr e

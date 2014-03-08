@@ -17,61 +17,47 @@ import Frontend.Alpha
 import Internal
 
 monomorphise :: AnnProgram -> Fresh AnnProgram
-monomorphise (typs, expr) =
-  runMono $ flip (,) <$> monoExpr expr <*> fmap concat (mapM monoDataType typs)
+monomorphise = bimapM return $ runMono . monoExpr
 
 -- Monomorphise
 
-type Instantiate = Map Name (Map [Type] Name)
-type DataTypeUse = Instantiate
-type VariableUse = Instantiate
-type MonoState = (DataTypeUse, VariableUse)
+type Instantiate = Map [Type] Name
+type VariableUse = Map Name Instantiate
 
 newtype Mono a = Mono
-  { unMono :: ReaderT TypeSubst (StateT MonoState Fresh) a }
+  { unMono :: ReaderT TypeSubst (StateT VariableUse Fresh) a }
  deriving ( Functor, Applicative, Monad, MonadReader TypeSubst
-          , MonadState MonoState, MonadFresh )
+          , MonadState VariableUse, MonadFresh )
 
 runMono :: Mono a -> Fresh a
-runMono = flip evalStateT (M.empty, M.empty) . flip runReaderT M.empty . unMono
+runMono = flip evalStateT M.empty . flip runReaderT M.empty . unMono
+
+withSubst :: [(TypeVar, Type)] -> Mono a -> Mono a
+withSubst s = local $ flip (foldr $ uncurry bind) s
 
 update :: Type -> Mono Type
-update t = asks (flip subst t) >>= f 
+update t = f <$> asks (flip subst t)
  where
-  f (DataType [] tcon) = return $ DataType [] tcon
-  f (DataType targs tcon) = do
-    targs' <- mapM f targs
-    use <- gets $ fromMaybe M.empty . M.lookup tcon . fst
-    case M.lookup targs' use of
-      Just tcon' -> return $ DataType [] tcon'
-      Nothing -> do
-        tcon' <- flip rename tcon <$> fresh
-        modify $ first $ M.insert tcon $ M.insert targs' tcon' use
-        return $ DataType [] tcon'
-  f (TypeVar v) = return UnitType 
-  f (FunType t1 t2) = FunType <$> f t1 <*> f t2
-  f (TupleType ts) = TupleType <$> mapM f ts
-  f t = return t
+  -- replace free type variables with unit type
+  f (DataType targs tcon) = DataType (map f targs) tcon
+  f (TypeVar v) = UnitType
+  f (FunType t1 t2) = FunType (f t1) (f t2)
+  f (TupleType ts) = TupleType (map f ts)
+  f t = t
 
-monoDataType :: DataTypeDecl -> Mono [DataTypeDecl]
-monoDataType (0, tcon, cons) = return [(0, tcon, cons)]
-monoDataType (i, tcon, cons) = do
-  use <- gets $ fromMaybe M.empty . M.lookup tcon . fst
-  forM (M.toList use) $ \(ts, tcon'@(Renamed _ k)) ->
-    local (flip (foldr $ uncurry bind) $ zip [0..i-1] ts) $ do
-      cons' <- mapM (bimapM (return . rename k) (mapM update)) cons
-      return (i, tcon', cons')
+useOf :: Name -> Mono Instantiate
+useOf name = gets $ fromMaybe M.empty . M.lookup name
 
 monoExpr :: AnnExpr -> Mono AnnExpr
 monoExpr (AVar name []) = return $ AVar name []
 monoExpr (AVar name targs) = do
   targs' <- mapM update targs
-  use <- gets $ fromMaybe M.empty . M.lookup name . snd
+  use <- useOf name
   case M.lookup targs' use of
     Just name' -> return $ AVar name' []
     Nothing -> do
       name' <- flip rename name <$> fresh
-      modify $ second $ M.insert name $ M.insert targs' name' use
+      modify $ M.insert name $ M.insert targs' name' use
       return $ AVar name' []
 monoExpr (AValue val) = return $ AValue val
 monoExpr (AIf e1 e2 e3) =
@@ -86,12 +72,9 @@ monoExpr (AApply e1 e2) =
   AApply <$> monoExpr e1 <*> monoExpr e2
 monoExpr (AOp op es) =
   AOp op <$> mapM monoExpr es
-monoExpr (ACon con t es) = do
-  t' <- update t
-  case t' of
-    DataType _ (Renamed _ i) ->
-      ACon (rename i con) t' <$> mapM monoExpr es
-    _ -> ACon con t' <$> mapM monoExpr es
+monoExpr (ACon con tcon targs es) = do
+  targs' <- mapM update targs
+  ACon con tcon targs' <$> mapM monoExpr es
 monoExpr (ATuple es) =
   ATuple <$> mapM monoExpr es
 
@@ -100,9 +83,9 @@ monoDecl (ARecDecl (name, TypeScheme [] t) e) = do
   t' <- update t
   (:[]) . ARecDecl (name, TypeScheme [] t') <$> monoExpr e
 monoDecl (ARecDecl (name, TypeScheme vs t) e) = do
-  use <- gets $ fromMaybe M.empty . M.lookup name . snd
+  use <- useOf name
   forM (M.toList use) $ \(targs, name') -> do
-    local (flip (foldr $ uncurry bind) $ zip vs targs) $ do
+    withSubst (zip vs targs) $ do
       t' <- update t
       let alphaEnv = M.singleton name name'
       e' <- Mono . lift . lift $ runAlpha alphaEnv $ alphaExpr e
@@ -111,9 +94,9 @@ monoDecl (ADecl (name, TypeScheme [] t) e) = do
   t' <- update t
   (:[]) . ADecl (name, TypeScheme [] t') <$> monoExpr e
 monoDecl (ADecl (name, TypeScheme vs t) e) = do
-  use <- gets $ fromMaybe M.empty . M.lookup name . snd
+  use <- useOf name
   forM (M.toList use) $ \(targs, name') ->
-    local (flip (foldr $ uncurry bind) $ zip vs targs) $ do
+    withSubst (zip vs targs) $ do
       t' <- update t
       e' <- Mono . lift . lift $ runAlpha M.empty $ alphaExpr e
       ADecl (name', TypeScheme [] t') <$> monoExpr e'
@@ -122,23 +105,20 @@ monoDecl (ATupleDecl bs@((_, TypeScheme [] _):_) e) = do
   bs' <- zip (map fst bs) <$> mapM (update >=> return . TypeScheme []) ts
   (:[]) . ATupleDecl bs' <$> monoExpr e
 monoDecl (ATupleDecl bs@((_, TypeScheme vs _):_) e) = do
-  uses <- mapM (\(name, _) -> gets $ fromMaybe M.empty . M.lookup name . snd) bs
+  uses <- mapM (useOf . fst) bs
   let ts = map (\(_, TypeScheme _ t) -> t) bs
       use = map (\targs -> (targs, map (fromMaybe Erased . M.lookup targs) uses)) $
               S.toList $ S.unions $ map M.keysSet uses
   forM use $ \(targs, names) ->
-    local (flip (foldr $ uncurry bind) $ zip vs targs) $ do
+    withSubst (zip vs targs) $ do
       bs' <- zip names <$> mapM (update >=> return . TypeScheme []) ts 
       e' <- Mono . lift . lift $ runAlpha M.empty $ alphaExpr e
       ATupleDecl bs' <$> monoExpr e'
 
 monoAlt :: AnnAlt -> Mono AnnAlt
-monoAlt (AConCase con t bs e) = do
-  t' <- update t
+monoAlt (AConCase con tcon targs bs e) = do
+  targs' <- mapM update targs
   bs' <- mapM (bimapM return update) bs
-  case t' of
-    DataType _ (Renamed _ i) ->
-      AConCase (rename i con) t' bs' <$> monoExpr e 
-    _ -> AConCase con t' bs' <$> monoExpr e
+  AConCase con tcon targs' bs' <$> monoExpr e
 monoAlt (ADefaultCase e) =
   ADefaultCase <$> monoExpr e

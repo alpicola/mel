@@ -9,8 +9,10 @@ import Data.Bifunctor
 
 import Frontend.AST
 import Frontend.Types
+import Frontend.Values
 import Frontend.Primitives
 import K.AST
+
 import Internal
 
 constFold :: KProgram -> KProgram
@@ -90,15 +92,15 @@ cfExpr (KOp (FArith op) ns) = do
   case r of
     Just f -> return $ KValue $ FloatValue f
     Nothing -> return $ KOp (FArith op) ns'
-cfExpr (KCon con t ns) =
-  KCon con t <$> mapM pullName ns
+cfExpr (KCon con tcon targs ns) =
+  KCon con tcon targs <$> mapM pullName ns
 cfExpr (KTuple ns) =
   KTuple <$> mapM pullName ns
 cfExpr (KProj i n) =
   KProj i <$> pullName n
 
 cfAlt :: KAlt -> CF KAlt
-cfAlt (KConCase con t bs e) =
-  KConCase con t bs <$> cfExpr e
+cfAlt (KConCase con tcon targs bs e) =
+  KConCase con tcon targs bs <$> cfExpr e
 cfAlt (KDefaultCase e) =
   KDefaultCase <$> cfExpr e

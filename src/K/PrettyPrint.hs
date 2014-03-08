@@ -83,7 +83,7 @@ ppExpr (KOp (FArith FMinus) [n]) =
   write $ show Minus ++ " " ++ show n ++ " "
 ppExpr (KOp (FArith op) [n1, n2]) =
   write $ show n1 ++ " " ++ show op ++ " " ++ show n2 ++ " "
-ppExpr (KCon con _ ns) = do
+ppExpr (KCon con _ _ ns) = do
   write $ show con ++ " "
   unless (null ns) $ do
     write $ "(" ++ intercalate ", " (map show ns) ++ ") "
@@ -103,7 +103,7 @@ ppDecl (KDecl b e) = do
   withIndent $ ppExpr e
 
 ppAlt :: KAlt -> PP ()
-ppAlt (KConCase con _ bs e) = do
+ppAlt (KConCase con _ _ bs e) = do
   newline
   write $ "| " ++ show con ++ " "
   unless (null bs) $ do

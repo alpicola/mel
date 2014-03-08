@@ -10,13 +10,15 @@ import Data.Bitraversable
 
 import Frontend.AST
 import Frontend.Types
+import Frontend.Values
 import Frontend.Builtins
 import Frontend.Primitives
 import K.AST
+
 import Internal
 
 normalize :: AnnProgram -> Fresh KProgram
-normalize = bimapM return $ fmap (flattenExpr . snd) . runNorm builtinFunctions . normExpr
+normalize = bimapM return $ fmap (flattenLet . snd) . runNorm builtinFunctions . normExpr
 
 -- K-normalization
 
@@ -91,9 +93,9 @@ normExpr (AOp op es) = do
            FArith _ -> FloatType
   bindExprs (map normExpr es) $ \names ->
     return (t, KOp op names)
-normExpr (ACon con t es) =
+normExpr (ACon con tcon targs es) =
   bindExprs (map normExpr es) $ \names ->
-    return (t, KCon con t names)
+    return (DataType targs tcon, KCon con tcon targs names)
 normExpr (ATuple es) = do
   (ts, es') <- unzip <$> mapM normExpr es
   bindExprs (map return $ zip ts es') $ \names ->
@@ -114,8 +116,8 @@ normDecl (ADecl (name, TypeScheme [] t) e) = do
     _ -> return ([b], KFunDecl b bs e'')
 
 normAlt :: AnnAlt -> Norm (Type, KAlt)
-normAlt (AConCase con t bs e) = do
-  second (KConCase con t bs) <$> withBind bs (normExpr e)
+normAlt (AConCase con tcon targs bs e) = do
+  second (KConCase con tcon targs bs) <$> withBind bs (normExpr e)
 normAlt (ADefaultCase e) =
   second KDefaultCase <$> normExpr e
 
