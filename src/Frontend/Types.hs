@@ -79,11 +79,17 @@ showType vs t =
   f _ FloatType = "float"
   f _ BoolType = "bool"
   f _ UnitType = "unit"
-  f p (FunType t1 t2) = let s = f 1 t1 ++ " -> " ++ f 0 t2
-                        in if p > 0 then "(" ++ s ++ ")" else s 
-  f _ (TupleType ts) = "(" ++ intercalate ", " (map (f 0) ts) ++ ")" 
-  f p (DataType ts n) = let s = intercalate " " (map (f 2) ts) ++ " " ++ show n
-                        in if p > 1 then "(" ++ s ++ ")" else s
+  f p (FunType t1 t2) =
+    let s = f 1 t1 ++ " -> " ++ f 0 t2
+    in if p > 0 then "(" ++ s ++ ")" else s 
+  f _ (TupleType ts) = intercalate " * " (map (f 0) ts)
+  f p (DataType [] n) = show n
+  f p (DataType [t] n) =
+    let s = f 2 t ++ " " ++ show n
+    in if p > 1 then "(" ++ s ++ ")" else s
+  f p (DataType ts n) =
+    let s = "(" ++ intercalate ", " (map (f 0) ts) ++ ") " ++ show n
+    in if p > 1 then "(" ++ s ++ ")" else s
 
 showTypeVar :: TypeVar -> String
 showTypeVar i = '\'' : map (chr . (97 +)) (digits 26 i)
@@ -92,14 +98,3 @@ showTypeVar i = '\'' : map (chr . (97 +)) (digits 26 i)
    where
     go 0 = []
     go k = (k `mod` base) : go (k `div` base)
-
-returnType :: Type -> Int -> Type
-returnType t 0 = t
-returnType (FunType _ t) i = returnType t (i - 1)
-returnType t _ = t
-
-prefixOfType :: Type -> String
-prefixOfType (FunType _ _) = "f"
-prefixOfType (TupleType _) = "t"
-prefixOfType (DataType _ n) = take 1 $ show n
-prefixOfType t = take 1 $ show t

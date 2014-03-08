@@ -71,6 +71,8 @@ cfExpr (KLet (KDecl (n, t) e1) e2) = do
       KLet (KDecl (n, t) e1') <$> cfExpr e2
 cfExpr (KMatch n alts) =
   KMatch <$> pullName n <*> mapM cfAlt alts
+cfExpr (KMatch1 n alt) =
+  KMatch1 <$> pullName n <*> cfAlt alt
 cfExpr (KApply n ns) =
   KApply <$> pullName n <*> mapM pullName ns
 cfExpr (KOp (Cmp op) ns) = do
@@ -92,15 +94,11 @@ cfExpr (KOp (FArith op) ns) = do
   case r of
     Just f -> return $ KValue $ FloatValue f
     Nothing -> return $ KOp (FArith op) ns'
-cfExpr (KCon con tcon targs ns) =
-  KCon con tcon targs <$> mapM pullName ns
-cfExpr (KTuple ns) =
-  KTuple <$> mapM pullName ns
-cfExpr (KProj i n) =
-  KProj i <$> pullName n
+cfExpr (KCon con ns) =
+  KCon con <$> mapM pullName ns
 
 cfAlt :: KAlt -> CF KAlt
-cfAlt (KConCase con tcon targs bs e) =
-  KConCase con tcon targs bs <$> cfExpr e
+cfAlt (KConCase con bs e) =
+  KConCase con bs <$> cfExpr e
 cfAlt (KDefaultCase e) =
   KDefaultCase <$> cfExpr e

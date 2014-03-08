@@ -3,6 +3,7 @@ module Internal.Name where
 data Name = Raw String
           | Renamed String Int
           | External String
+          | Special String
           | Erased
           deriving (Eq, Ord)
 
@@ -10,6 +11,7 @@ instance Show Name where
  show (Raw name) = name
  show (Renamed name i) = name ++ ('_' : show i)
  show (External name) = name
+ show (Special name) = name
  show Erased = "_"
 
 rename :: Int -> Name -> Name

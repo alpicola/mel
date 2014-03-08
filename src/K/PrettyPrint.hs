@@ -7,10 +7,10 @@ import Data.List
 import Data.Char (isSpace)
 import Data.Bifunctor
 
-import Frontend.AST
-import Frontend.Types
+import Frontend.Values
 import Frontend.Primitives
 import K.AST
+import K.Types
 
 import Internal
 
@@ -71,6 +71,10 @@ ppExpr (KMatch n alts) = do
   newline
   write $ "match " ++ show n ++ " with "
   mapM_ (withIndent . ppAlt) alts
+ppExpr (KMatch1 n alt) = do
+  newline
+  write $ "match " ++ show n ++ " with "
+  void $ withIndent $ ppAlt alt
 ppExpr (KApply n ns) =
   write $ intercalate " " (map show (n:ns)) ++ " "
 ppExpr (KOp (Cmp cmp) [n1, n2]) =
@@ -83,18 +87,14 @@ ppExpr (KOp (FArith FMinus) [n]) =
   write $ show Minus ++ " " ++ show n ++ " "
 ppExpr (KOp (FArith op) [n1, n2]) =
   write $ show n1 ++ " " ++ show op ++ " " ++ show n2 ++ " "
-ppExpr (KCon con _ _ ns) = do
-  write $ show con ++ " "
+ppExpr (KCon con ns) = do
+  write $ ('#' : show con) ++ " "
   unless (null ns) $ do
     write $ "(" ++ intercalate ", " (map show ns) ++ ") "
-ppExpr (KTuple ns) =
-  write $ "(" ++ intercalate ", " (map show ns) ++ ") "
-ppExpr (KProj i n) =
-  write $ "#proj" ++ show i ++ " " ++ show n ++ " "
 
 ppDecl :: KDecl -> PP Newlined
 ppDecl (KFunDecl (n, t) bs e) = do
-  write $ show n ++ " "
+  write $ "rec " ++ show n ++ " "
   write $ "(" ++ (intercalate ") (" $ map showBinder bs) ++ ") "
   write $ ": " ++ show (returnType t (-1)) ++ " = "
   withIndent $ ppExpr e
@@ -103,9 +103,9 @@ ppDecl (KDecl b e) = do
   withIndent $ ppExpr e
 
 ppAlt :: KAlt -> PP ()
-ppAlt (KConCase con _ _ bs e) = do
+ppAlt (KConCase con bs e) = do
   newline
-  write $ "| " ++ show con ++ " "
+  write $ "| " ++ ('#' : show con) ++ " "
   unless (null bs) $ do
     write $ "(" ++ (intercalate ", " $ map showBinder bs) ++ ") "
   write "-> "
@@ -115,5 +115,5 @@ ppAlt (KDefaultCase e) = do
   write $ "| _ ->"
   void $ withIndent $ ppExpr e
 
-showBinder :: MonoBinder -> String
+showBinder :: KBinder -> String
 showBinder (n, t) = show n ++ ":" ++ show t

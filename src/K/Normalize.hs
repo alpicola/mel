@@ -1,9 +1,9 @@
-{-# LANGUAGE TupleSections #-}
 module K.Normalize (normalize) where
 
 import Control.Applicative
 import Control.Monad.Reader
 import Data.Maybe
+import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Bifunctor
 import Data.Bitraversable
@@ -14,112 +14,131 @@ import Frontend.Values
 import Frontend.Builtins
 import Frontend.Primitives
 import K.AST
+import K.Types
 
 import Internal
 
 normalize :: AnnProgram -> Fresh KProgram
-normalize = bimapM return $ fmap (flattenLet . snd) . runNorm builtinFunctions . normExpr
+normalize (typs, expr) = do
+  let env = (buildConEnv typs, M.map toKType builtinFunctions)
+  (expr', _) <- runNorm env $ normExpr expr
+  return (buildDataTypeEnv typs, flattenLet expr')
+
+-- Simplify datatype declaration
+
+type KConEnv = Map Name Int
+
+buildConEnv :: [DataTypeDecl] -> KConEnv
+buildConEnv typs = M.fromList $ do
+  (_, _, cons) <- typs
+  zip (map fst cons) [0..]
+
+buildDataTypeEnv :: [DataTypeDecl] -> KDataTypeEnv
+buildDataTypeEnv typs = M.fromList $
+  tuples ++ map (\(_, tcon, cons) -> (tcon, length cons)) typs
+ where
+  tuples = map (flip (,) 1 . tupleTypeName) [2..22]
 
 -- K-normalization
 
-type Norm a = ReaderT MonoTypeEnv Fresh a
+type Norm a = ReaderT (KConEnv, KTypeEnv) Fresh a
 
-runNorm :: MonoTypeEnv -> Norm a -> Fresh a
+runNorm :: (KConEnv, KTypeEnv) -> Norm a -> Fresh a
 runNorm env = flip runReaderT env
 
-withBind :: [MonoBinder] -> Norm a -> Norm a
-withBind bs = local $ flip (foldr $ uncurry M.insert) bs'
+withBind :: [KBinder] -> Norm a -> Norm a
+withBind bs = local $ second $ flip (foldr $ uncurry M.insert) bs'
  where
   bs' = filter (not . isErased . fst) bs
 
-bindExpr :: Norm (Type, KExpr) -> (Name -> Norm (Type, KExpr)) -> Norm (Type, KExpr)
+bindExpr :: Norm (KExpr, KType) -> (KBinder -> Norm (KExpr, KType)) -> Norm (KExpr, KType)
 bindExpr m k = do
-  (t, e) <- m
+  (e, t) <- m
   case e of
-    (KVar name) -> k name 
+    KVar name -> k (name, t)
     _ -> do
       name <- Renamed (prefixOfType t) <$> fresh
-      second (KLet (KDecl (name, t) e)) <$> k name
+      first (KLet (KDecl (name, t) e)) <$> k (name, t)
 
-bindExprs :: [Norm (Type, KExpr)] -> ([Name] -> Norm (Type, KExpr)) -> Norm (Type, KExpr)
+bindExprs :: [Norm (KExpr, KType)] -> ([KBinder] -> Norm (KExpr, KType)) -> Norm (KExpr, KType)
 bindExprs ms k = go [] ms
  where
-  go names [] = k $ reverse names
-  go names (m:ms) = bindExpr m $ \name -> go (name:names) ms 
+  go bs [] = k $ reverse bs
+  go bs (m:ms) = bindExpr m $ \b -> go (b:bs) ms 
 
-normExpr :: AnnExpr -> Norm (Type, KExpr)
+normExpr :: AnnExpr -> Norm (KExpr, KType)
 normExpr (AVar name _) =
-  (, KVar name) <$> asks (fromJust . M.lookup name) 
+  (,) (KVar name) <$> asks (fromJust . M.lookup name . snd)
 normExpr (AValue (BoolValue b)) =
-  return (IntType, KValue $ IntValue $ if b then 1 else 0)
+  return (KValue $ IntValue $ if b then 1 else 0, KIntType)
 normExpr (AValue val) =
-  return (typeOf val, KValue val)
+  return (KValue val, toKType $ typeOf val)
 normExpr (AIf (AOp (Cmp cmp) [e1, e2]) e3 e4) =
-  bindExpr (normExpr e1) $ \name1 ->
-    bindExpr (normExpr e2) $ \name2 -> do
-      (t, e3') <- normExpr e3
-      (_, e4') <- normExpr e4
-      return (t, KIf cmp name1 name2 e3' e4')
+  bindExpr (normExpr e1) $ \(name1, _) ->
+    bindExpr (normExpr e2) $ \(name2, _) -> do
+      (e3', t) <- normExpr e3
+      (e4', _) <- normExpr e4
+      return (KIf cmp name1 name2 e3' e4', t)
 normExpr (AIf e1 e2 e3) =
   normExpr $ AIf (AOp (Cmp Eq) [e1, AValue (BoolValue True)]) e2 e3
 normExpr (ALet (ATupleDecl bs e1) e2) = do
-  let bs' = map (second $ \(TypeScheme _ t) -> t) bs
-  bindExpr (withBind bs' $ normExpr e1) $ \name -> do
-    let f (b, i) e = KLet (KDecl b (KProj i name)) e
-    second (flip (foldr f) $ zip bs' [0..]) <$> normExpr e2
+  bindExpr (normExpr e1) $ \(name, _) -> do
+    let bs' = map (second $ \(TypeScheme _ t) -> toKType t) bs
+    first (KMatch1 name . KConCase 0 bs') <$> withBind bs' (normExpr e2)
 normExpr (ALet d e) = do
-  (bs, d') <- normDecl d
-  second (KLet d') <$> withBind bs (normExpr e)
+  (d', bs) <- normDecl d
+  first (KLet d') <$> withBind bs (normExpr e)
 normExpr (AMatch e alts) =
-  bindExpr (normExpr e) $ \name ->
-    bimap head (KMatch name) . unzip <$> mapM normAlt alts
+  bindExpr (normExpr e) $ \(name, _) ->
+    bimap (KMatch name) head . unzip <$> mapM normAlt alts
 normExpr e@(AFun _ _) = do
-  let (bs, e') = foldFunction e
-  (t, e'') <- withBind bs $ normExpr e'
+  let (bs, e') = first (map (second toKType)) $ foldFunction e
+  (e'', t) <- withBind bs $ normExpr e'
   name <- Renamed "f" <$> fresh 
-  let t' = foldr FunType t $ map snd bs
-  return (t', KLet (KFunDecl (name, t') bs e'') (KVar name))
+  let t' = foldr KFunType t $ map snd bs
+  return (KLet (KFunDecl (name, t') bs e'') (KVar name), t')
 normExpr e@(AApply _ _) = do
   let (e', args) = foldApply e
-  (t, e'') <- normExpr e'
-  let t' = returnType t $ length args
-  bindExpr (return (t, e'')) $ \name ->
-    bindExprs (map normExpr args) $ \names ->
-      return (t', KApply name names)
+  bindExpr (normExpr e') $ \(name, t) ->
+    bindExprs (map normExpr args) $ \bs ->
+      return (KApply name (map fst bs), returnType t (length args))
 normExpr (AOp op es) = do
   let t = case op of
-           Cmp _ -> IntType
-           Arith _ -> IntType
-           FArith _ -> FloatType
-  bindExprs (map normExpr es) $ \names ->
-    return (t, KOp op names)
+           Cmp _ -> KIntType
+           Arith _ -> KIntType
+           FArith _ -> KFloatType
+  bindExprs (map normExpr es) $ \bs ->
+    return (KOp op (map fst bs), t)
 normExpr (ACon con tcon targs es) =
-  bindExprs (map normExpr es) $ \names ->
-    return (DataType targs tcon, KCon con tcon targs names)
+  bindExprs (map normExpr es) $ \bs -> do
+    let targs' = map toKType targs
+    con' <- asks $ fromJust . M.lookup con . fst
+    return (KCon con' (map fst bs), KDataType tcon targs')
 normExpr (ATuple es) = do
-  (ts, es') <- unzip <$> mapM normExpr es
-  bindExprs (map return $ zip ts es') $ \names ->
-    return (TupleType ts, KTuple names)
+  bindExprs (map normExpr es) $ \bs -> do
+    let (names, targs) = unzip bs
+        tcon = tupleTypeName $ length bs
+    return (KCon 0 names, KDataType tcon targs)
 
-normDecl :: AnnDecl -> Norm ([MonoBinder], KDecl)
+normDecl :: AnnDecl -> Norm (KDecl, [KBinder])
 normDecl (ARecDecl (name, TypeScheme [] t) e) = do
-  let b = (name, t)
-  let (bs, e') = foldFunction e
-  (_, e'') <- withBind (b:bs) $ normExpr e'
-  return ([b], KFunDecl b bs e'')
+  let b = (name, toKType t)
+  let (bs, e') = first (map (second toKType)) $ foldFunction e
+  bimap (KFunDecl b bs) (const [b]) <$> withBind (b:bs) (normExpr e')
 normDecl (ADecl (name, TypeScheme [] t) e) = do
-  let b = (name, t)
-  let (bs, e') = foldFunction e
-  (_, e'') <- withBind bs $ normExpr e'
+  let b = (name, toKType t)
+  let (bs, e') = first (map (second toKType)) $ foldFunction e
   case bs of
-    [] -> return ([b], KDecl b e'')
-    _ -> return ([b], KFunDecl b bs e'')
+    [] -> bimap (KDecl b) (const [b]) <$> withBind bs (normExpr e') 
+    _ -> bimap (KFunDecl b bs) (const [b]) <$> withBind bs (normExpr e')
 
-normAlt :: AnnAlt -> Norm (Type, KAlt)
-normAlt (AConCase con tcon targs bs e) = do
-  second (KConCase con tcon targs bs) <$> withBind bs (normExpr e)
+normAlt :: AnnAlt -> Norm (KAlt, KType)
+normAlt (AConCase con _ _ bs e) = do
+  con' <- asks $ fromJust . M.lookup con . fst
+  let bs' = map (second toKType) bs
+  first (KConCase con' bs') <$> withBind bs' (normExpr e)
 normAlt (ADefaultCase e) =
-  second KDefaultCase <$> normExpr e
+  first KDefaultCase <$> normExpr e
 
 foldFunction :: AnnExpr -> ([MonoBinder], AnnExpr) 
 foldFunction (AFun b e) = first (b:) $ foldFunction e

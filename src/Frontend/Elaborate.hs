@@ -180,7 +180,7 @@ tcExpr (MLMatch e alts) = do
 tcExpr (MLFun b e) = do
   v <- genVar
   (t, e') <- withBind [(b, TypeScheme [] v)] $ tcExpr e
-  return (FunType v t, AFun (b, t) e')
+  return (FunType v t, AFun (b, v) e')
 tcExpr (MLApply e1 e2) = do
   (t1, e1') <- tcExpr e1
   (t2, e2') <- tcExpr e2
