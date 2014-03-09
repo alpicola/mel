@@ -1,7 +1,6 @@
 module Main where
 
 import Control.Monad.Error
-import Data.Bifunctor
 import System.Environment
 
 import Frontend.AST
@@ -13,7 +12,7 @@ import Frontend.Monomorphise
 
 import K.AST
 import K.Normalize
-import K.ConstFold
+import K.Optimize
 import K.PrettyPrint
 
 import Internal
@@ -25,4 +24,4 @@ main = do
       src <- readFile file
       putStrLn $ either id prettyPrint $ do
         prog <- parseMLProgram src >>= elaborate
-        return . runFresh $ alpha prog >>= monomorphise >>= normalize >>= return . constFold
+        return . runFresh $ alpha prog >>= monomorphise >>= normalize >>= optimize

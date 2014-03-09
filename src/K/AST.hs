@@ -30,16 +30,16 @@ data KExpr = KVar Name
            | KOp PrimOp [Name]
            | KCon Int [Name]
            | KTuple [Name]
-           deriving Show
+           deriving (Eq, Show)
 
 data KDecl = KFunDecl KBinder [KBinder] KExpr
            | KDecl KBinder KExpr
            | KTupleDecl [KBinder] Name
-           deriving Show
+           deriving (Eq, Show)
 
 data KAlt = KConCase Int [KBinder] KExpr
           | KDefaultCase KExpr
-          deriving Show
+          deriving (Eq, Show)
 
 freeVars :: KExpr -> Set Name
 freeVars (KVar n) = S.singleton n
@@ -60,7 +60,9 @@ freeVars (KMatch n alts) =
     S.difference (freeVars e) $ S.fromList $ map fst bs
   f (KDefaultCase e) = freeVars e
 freeVars (KApply n ns) = S.fromList (n:ns)
+freeVars (KOp _ ns) = S.fromList ns
 freeVars (KCon _ ns) = S.fromList ns
+freeVars (KTuple ns) = S.fromList ns
 
 flattenLet :: KExpr -> KExpr
 flattenLet (KIf cmp n1 n2 e1 e2) =

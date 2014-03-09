@@ -8,6 +8,7 @@ data Value = IntValue Int
            | FloatValue Float
            | BoolValue Bool
            | UnitValue
+           deriving Eq
 
 instance Show Value where
   show (IntValue i) = show i

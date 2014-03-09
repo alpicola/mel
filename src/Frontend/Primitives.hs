@@ -3,11 +3,11 @@ module Frontend.Primitives where
 data PrimOp = Cmp CmpOp
             | Arith ArithOp
             | FArith FArithOp 
-            deriving Show
+            deriving (Eq, Show)
 
-data CmpOp = Eq | Neq | Lt | Le | Gt | Ge
-data ArithOp = Plus | Minus | Times | Div
-data FArithOp = FPlus | FMinus | FTimes | FDiv
+data CmpOp = Eq | Neq | Lt | Le | Gt | Ge deriving Eq
+data ArithOp = Plus | Minus | Times | Div deriving Eq
+data FArithOp = FPlus | FMinus | FTimes | FDiv deriving Eq
 
 instance Show CmpOp where
   show Eq = "="
