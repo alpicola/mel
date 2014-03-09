@@ -125,11 +125,11 @@ binder = try lowerName
      <|> Erased <$ symbol "_"
 
 alt :: Parser MLAlt
-alt = MLConCase <$> upperName <*> many binder <* symbol "->" <*> expr
+alt = (try $ MLDefaultCase <$ symbol "_" <* symbol "->" <*> expr)
+  <|> MLConCase <$> upperName <*> many binder <* symbol "->" <*> expr
   <|> MLConCase (Raw "::") <$> ((\x y -> [x, y]) <$> binder <* reservedOp "::" <*> binder)
                      <* symbol "->" <*> expr
   <|> MLConCase (Raw "[]") [] <$ symbol "[" <* symbol "]" <* symbol "->" <*> expr
-  <|> MLDefaultCase <$ symbol "_" <* symbol "->" <*> expr
 
 atom :: Parser MLExpr
 atom = MLVar <$> lowerName
