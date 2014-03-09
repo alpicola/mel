@@ -71,10 +71,6 @@ ppExpr (KMatch n alts) = do
   newline
   write $ "match " ++ show n ++ " with "
   mapM_ (withIndent . ppAlt) alts
-ppExpr (KMatch1 n alt) = do
-  newline
-  write $ "match " ++ show n ++ " with "
-  void $ withIndent $ ppAlt alt
 ppExpr (KApply n ns) =
   write $ intercalate " " (map show (n:ns)) ++ " "
 ppExpr (KOp (Cmp cmp) [n1, n2]) =
@@ -91,6 +87,8 @@ ppExpr (KCon con ns) = do
   write $ ('#' : show con) ++ " "
   unless (null ns) $ do
     write $ "(" ++ intercalate ", " (map show ns) ++ ") "
+ppExpr (KTuple ns) =
+  write $ "(" ++ intercalate ", " (map show ns) ++ ") "
 
 ppDecl :: KDecl -> PP Newlined
 ppDecl (KFunDecl (n, t) bs e) = do
@@ -101,6 +99,10 @@ ppDecl (KFunDecl (n, t) bs e) = do
 ppDecl (KDecl b e) = do
   write $ showBinder b ++ " = "
   withIndent $ ppExpr e
+ppDecl (KTupleDecl bs n) = do
+  write $ "(" ++ (intercalate ", " $ map showBinder bs) ++ ") "
+  write $ "= " ++ show n ++ " "
+  return False
 
 ppAlt :: KAlt -> PP ()
 ppAlt (KConCase con bs e) = do

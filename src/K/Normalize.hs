@@ -22,7 +22,7 @@ normalize :: AnnProgram -> Fresh KProgram
 normalize (typs, expr) = do
   let env = (buildConEnv typs, M.map toKType builtinFunctions)
   (expr', _) <- runNorm env $ normExpr expr
-  return (buildDataTypeEnv typs, flattenLet expr')
+  return (buildDataTypeTable typs, flattenLet expr')
 
 -- Simplify datatype declaration
 
@@ -33,11 +33,9 @@ buildConEnv typs = M.fromList $ do
   (_, _, cons) <- typs
   zip (map fst cons) [0..]
 
-buildDataTypeEnv :: [DataTypeDecl] -> KDataTypeEnv
-buildDataTypeEnv typs = M.fromList $
-  tuples ++ map (\(_, tcon, cons) -> (tcon, length cons)) typs
- where
-  tuples = map (flip (,) 1 . tupleTypeName) [2..22]
+buildDataTypeTable :: [DataTypeDecl] -> KDataTypeTable
+buildDataTypeTable typs = M.fromList $
+  map (\(_, tcon, cons) -> (tcon, length cons)) typs
 
 -- K-normalization
 
@@ -70,7 +68,7 @@ normExpr :: AnnExpr -> Norm (KExpr, KType)
 normExpr (AVar name _) =
   (,) (KVar name) <$> asks (fromJust . M.lookup name . snd)
 normExpr (AValue (BoolValue b)) =
-  return (KValue $ IntValue $ if b then 1 else 0, KIntType)
+  return (KValue $ IntValue $ if b then 1 else 0, IntType)
 normExpr (AValue val) =
   return (KValue val, toKType $ typeOf val)
 normExpr (AIf (AOp (Cmp cmp) [e1, e2]) e3 e4) =
@@ -84,7 +82,7 @@ normExpr (AIf e1 e2 e3) =
 normExpr (ALet (ATupleDecl bs e1) e2) = do
   bindExpr (normExpr e1) $ \(name, _) -> do
     let bs' = map (second $ \(TypeScheme _ t) -> toKType t) bs
-    first (KMatch1 name . KConCase 0 bs') <$> withBind bs' (normExpr e2)
+    first (KLet (KTupleDecl bs' name)) <$> withBind bs' (normExpr e2)
 normExpr (ALet d e) = do
   (d', bs) <- normDecl d
   first (KLet d') <$> withBind bs (normExpr e)
@@ -95,7 +93,7 @@ normExpr e@(AFun _ _) = do
   let (bs, e') = first (map (second toKType)) $ foldFunction e
   (e'', t) <- withBind bs $ normExpr e'
   name <- Renamed "f" <$> fresh 
-  let t' = foldr KFunType t $ map snd bs
+  let t' = foldr FunType t $ map snd bs
   return (KLet (KFunDecl (name, t') bs e'') (KVar name), t')
 normExpr e@(AApply _ _) = do
   let (e', args) = foldApply e
@@ -104,21 +102,19 @@ normExpr e@(AApply _ _) = do
       return (KApply name (map fst bs), returnType t (length args))
 normExpr (AOp op es) = do
   let t = case op of
-           Cmp _ -> KIntType
-           Arith _ -> KIntType
-           FArith _ -> KFloatType
+           Cmp _ -> IntType
+           Arith _ -> IntType
+           FArith _ -> FloatType
   bindExprs (map normExpr es) $ \bs ->
     return (KOp op (map fst bs), t)
 normExpr (ACon con tcon targs es) =
   bindExprs (map normExpr es) $ \bs -> do
     let targs' = map toKType targs
     con' <- asks $ fromJust . M.lookup con . fst
-    return (KCon con' (map fst bs), KDataType tcon targs')
+    return (KCon con' (map fst bs), DataType targs' tcon)
 normExpr (ATuple es) = do
-  bindExprs (map normExpr es) $ \bs -> do
-    let (names, targs) = unzip bs
-        tcon = tupleTypeName $ length bs
-    return (KCon 0 names, KDataType tcon targs)
+  bindExprs (map normExpr es) $ \bs ->
+    return $ bimap KTuple TupleType $ unzip bs
 
 normDecl :: AnnDecl -> Norm (KDecl, [KBinder])
 normDecl (ARecDecl (name, TypeScheme [] t) e) = do

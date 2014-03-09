@@ -88,20 +88,22 @@ cfExpr (KLet (KDecl (n, t) e1) e2) = do
       KLet (KDecl (n, t) e1') <$> withConstValue n v (cfExpr e2)
     KCon con ns ->
       KLet (KDecl (n, t) e1') <$> withConstData n (con, ns) (cfExpr e2)
+    KTuple ns ->
+      KLet (KDecl (n, t) e1') <$> withConstData n (0, ns) (cfExpr e2)
     _ ->
       KLet (KDecl (n, t) e1') <$> cfExpr e2
+cfExpr (KLet (KTupleDecl bs n) e) = do
+  n' <- pullName n
+  m <- getData n
+  case m of
+    Nothing -> KLet (KTupleDecl bs n') <$> cfExpr e
+    Just (_, ns) -> withSubst (zip (map fst bs) ns) $ cfExpr e
 cfExpr (KMatch n alts) = do
   n' <- pullName n
   m <- getData n
   case m of
     Nothing -> KMatch n' <$> mapM cfAlt alts 
     Just (con, ns) -> cfAlt' ns $ fromJust $ find (isMatch con) alts
-cfExpr (KMatch1 n alt) = do
-  n' <- pullName n
-  m <- getData n
-  case m of
-    Nothing -> KMatch1 n' <$> cfAlt alt
-    Just (_, ns) -> cfAlt' ns alt
 cfExpr (KApply n ns) =
   KApply <$> pullName n <*> mapM pullName ns
 cfExpr (KOp (Cmp op) ns) = do
@@ -125,6 +127,8 @@ cfExpr (KOp (FArith op) ns) = do
     Nothing -> return $ KOp (FArith op) ns'
 cfExpr (KCon con ns) =
   KCon con <$> mapM pullName ns
+cfExpr (KTuple ns) =
+  KTuple <$> mapM pullName ns
 
 cfAlt :: KAlt -> CF KAlt
 cfAlt (KConCase con bs e) =

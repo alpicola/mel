@@ -16,8 +16,8 @@ import Internal
 
 -- K-normal form AST
 
-type KDataTypeEnv = Map Name Int
-type KProgram = (KDataTypeEnv, KExpr)
+type KDataTypeTable = Map Name Int
+type KProgram = (KDataTypeTable, KExpr)
 
 type KBinder = (Name, KType)
 
@@ -26,14 +26,15 @@ data KExpr = KVar Name
            | KIf CmpOp Name Name KExpr KExpr
            | KLet KDecl KExpr
            | KMatch Name [KAlt]
-           | KMatch1 Name KAlt
            | KApply Name [Name]
            | KOp PrimOp [Name]
            | KCon Int [Name]
+           | KTuple [Name]
            deriving Show
 
 data KDecl = KFunDecl KBinder [KBinder] KExpr
            | KDecl KBinder KExpr
+           | KTupleDecl [KBinder] Name
            deriving Show
 
 data KAlt = KConCase Int [KBinder] KExpr
@@ -50,14 +51,14 @@ freeVars (KLet (KFunDecl (n, _) bs e1) e2) =
   in S.delete n $ S.union vs (freeVars e2)
 freeVars (KLet (KDecl (n, _) e1) e2) =
   S.union (freeVars e1) $ S.delete n (freeVars e2)
+freeVars (KLet (KTupleDecl bs n) e2) =
+  S.insert n $ S.difference (freeVars e2) $ S.fromList $ map fst bs
 freeVars (KMatch n alts) =
   S.insert n $ S.unions $ map f alts
  where
   f (KConCase _ bs e) =
     S.difference (freeVars e) $ S.fromList $ map fst bs
   f (KDefaultCase e) = freeVars e
-freeVars (KMatch1 n (KConCase _ bs e)) =
-  S.insert n $ S.difference (freeVars e) $ S.fromList $ map fst bs
 freeVars (KApply n ns) = S.fromList (n:ns)
 freeVars (KCon _ ns) = S.fromList ns
 
@@ -71,24 +72,24 @@ flattenLet (KMatch n alts) =
     KConCase con bs $ flattenLet e
   f (KDefaultCase e) =
     KDefaultCase $ flattenLet e
-flattenLet (KMatch1 n (KConCase con bs e)) =
-  KMatch1 n (KConCase con bs $ flattenLet e)
+flattenLet (KLet (KFunDecl b bs e1) e2) =
+  KLet (KFunDecl b bs (flattenLet e1)) (flattenLet e2)
 flattenLet (KLet (KDecl b e1) e2) = go $ flattenLet e1
  where
   go (KLet d e) = KLet d $ go e
   go e = KLet (KDecl b e) $ flattenLet e2
-flattenLet (KLet (KFunDecl b bs e1) e2) =
-  KLet (KFunDecl b bs (flattenLet e1)) (flattenLet e2)
+flattenLet (KLet (KTupleDecl bs n) e) =
+  KLet (KTupleDecl bs n) (flattenLet e)
 flattenLet e = e
 
 sideEffect :: KExpr -> Bool
 sideEffect (KIf _ _ _ e1 e2) = sideEffect e1 || sideEffect e2
-sideEffect (KLet (KDecl _ e1) e2) = sideEffect e1 || sideEffect e2
 sideEffect (KLet (KFunDecl _ _ _) e2) = sideEffect e2
+sideEffect (KLet (KDecl _ e1) e2) = sideEffect e1 || sideEffect e2
+sideEffect (KLet (KTupleDecl _ _) e) = sideEffect e
 sideEffect (KMatch _ alts) = any f alts
  where
   f (KConCase _ _ e) = sideEffect e
   f (KDefaultCase e) = sideEffect e
-sideEffect (KMatch1 _ (KConCase _ _ e)) = sideEffect e
 sideEffect (KApply _ _) = True
 sideEffect _ = False 
