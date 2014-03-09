@@ -16,10 +16,10 @@ import K.AST
 
 import Internal
 
+-- Do constant folding
+
 constFold :: KProgram -> KProgram
 constFold = second $ runCF (M.empty, M.empty) . cfExpr
-
--- Do constant folding
 
 type CopyEnv = Map Name Name
 type ConstEnv = Map Name (Either Value (Int, [Name]))

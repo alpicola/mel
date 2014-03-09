@@ -15,10 +15,10 @@ import K.Alpha
 
 import Internal
 
+-- Inlining
+
 inline :: KProgram -> Fresh KProgram
 inline = bimapM return $ runInline M.empty . inlineExpr
-
--- Inlining
 
 type InlineEnv = Map Name (KType, [Name], KExpr) 
 type Inline a = ReaderT InlineEnv Fresh a

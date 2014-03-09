@@ -1,4 +1,3 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving, TupleSections #-}
 module Frontend.Monomorphise (monomorphise) where
 
 import Control.Applicative
@@ -16,21 +15,17 @@ import Frontend.Types
 import Frontend.Alpha
 import Internal
 
+-- Monomorphise
+
 monomorphise :: AnnProgram -> Fresh AnnProgram
 monomorphise = bimapM return $ runMono . monoExpr
 
--- Monomorphise
-
 type Instantiate = Map [Type] Name
 type VariableUse = Map Name Instantiate
-
-newtype Mono a = Mono
-  { unMono :: ReaderT TypeSubst (StateT VariableUse Fresh) a }
- deriving ( Functor, Applicative, Monad, MonadReader TypeSubst
-          , MonadState VariableUse, MonadFresh )
+type Mono a = ReaderT TypeSubst (StateT VariableUse Fresh) a
 
 runMono :: Mono a -> Fresh a
-runMono = flip evalStateT M.empty . flip runReaderT M.empty . unMono
+runMono = flip evalStateT M.empty . flip runReaderT M.empty
 
 withSubst :: [(TypeVar, Type)] -> Mono a -> Mono a
 withSubst s = local $ flip (foldr $ uncurry bind) s
@@ -88,7 +83,7 @@ monoDecl (ARecDecl (name, TypeScheme vs t) e) = do
     withSubst (zip vs targs) $ do
       t' <- update t
       let alphaEnv = M.singleton name name'
-      e' <- Mono . lift . lift $ runAlpha alphaEnv $ alphaExpr e
+      e' <- lift . lift $ runAlpha alphaEnv $ alphaExpr e
       ARecDecl (name', TypeScheme [] t') <$> monoExpr e'
 monoDecl (ADecl (name, TypeScheme [] t) e) = do
   t' <- update t
@@ -98,7 +93,7 @@ monoDecl (ADecl (name, TypeScheme vs t) e) = do
   forM (M.toList use) $ \(targs, name') ->
     withSubst (zip vs targs) $ do
       t' <- update t
-      e' <- Mono . lift . lift $ runAlpha M.empty $ alphaExpr e
+      e' <- lift . lift $ runAlpha M.empty $ alphaExpr e
       ADecl (name', TypeScheme [] t') <$> monoExpr e'
 monoDecl (ATupleDecl bs@((_, TypeScheme [] _):_) e) = do
   let ts = map (\(_, TypeScheme _ t) -> t) bs
@@ -112,7 +107,7 @@ monoDecl (ATupleDecl bs@((_, TypeScheme vs _):_) e) = do
   forM use $ \(targs, names) ->
     withSubst (zip vs targs) $ do
       bs' <- zip names <$> mapM (update >=> return . TypeScheme []) ts 
-      e' <- Mono . lift . lift $ runAlpha M.empty $ alphaExpr e
+      e' <- lift . lift $ runAlpha M.empty $ alphaExpr e
       ATupleDecl bs' <$> monoExpr e'
 
 monoAlt :: AnnAlt -> Mono AnnAlt

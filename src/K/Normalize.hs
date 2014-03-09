@@ -18,13 +18,15 @@ import K.Types
 
 import Internal
 
+-- K-normalization
+
 normalize :: AnnProgram -> Fresh KProgram
 normalize (typs, expr) = do
   let env = (buildConEnv typs, M.map toKType builtinFunctions)
   (expr', _) <- runNorm env $ normExpr expr
   return (buildDataTypeTable typs, flattenLet expr')
 
--- Simplify datatype declaration
+-- Simplify datatypes declarations
 
 type KConEnv = Map Name Int
 
@@ -37,7 +39,7 @@ buildDataTypeTable :: [DataTypeDecl] -> KDataTypeTable
 buildDataTypeTable typs = M.fromList $
   map (\(_, tcon, cons) -> (tcon, length cons)) typs
 
--- K-normalization
+-- Bind all intermediate values to variables
 
 type Norm a = ReaderT (KConEnv, KTypeEnv) Fresh a
 

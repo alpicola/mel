@@ -11,10 +11,10 @@ import K.AST
 
 import Internal
 
+-- Eliminate unused declarations
+
 unusedElim :: KProgram -> KProgram
 unusedElim = second $ runUE . ueExpr
-
--- Eliminate unused declaration 
 
 type UE a = State (Set Name) a
 

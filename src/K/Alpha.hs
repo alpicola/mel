@@ -12,10 +12,10 @@ import K.AST
 
 import Internal
 
+-- Alpha Transform
+
 alpha :: [(Name, Name)] -> KExpr -> Fresh KExpr
 alpha env expr = runAlpha (M.fromList env) $ alphaExpr expr
-
--- Alpha Transform
 
 type AlphaEnv = Map Name Name
 type Alpha a = ReaderT AlphaEnv Fresh a

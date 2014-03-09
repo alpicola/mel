@@ -1,4 +1,3 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving, TupleSections #-}
 module Frontend.Elaborate (elaborate) where
 
 import Control.Applicative
@@ -19,6 +18,8 @@ import Frontend.Primitives
 import Frontend.Builtins
 import Frontend.Dianostic
 import Internal
+
+-- Elaborate
 
 elaborate :: MLProgram -> Either Dianostic AnnProgram
 elaborate (tdecls, decls) = do
@@ -85,14 +86,10 @@ buildTypeConEnv = M.fromList . map (\(i, tcon, _) -> (tcon, i))
 -- Typecheck
 
 type TCEnv = (PolyTypeEnv, ConEnv)
-
-newtype TC a = TC
-  { unTC :: ReaderT TCEnv (StateT TypeSubst (ErrorT Dianostic Fresh)) a }
- deriving ( Functor, Applicative, Monad, MonadError Dianostic
-          , MonadReader TCEnv, MonadState TypeSubst, MonadFresh )
+type TC a = ReaderT TCEnv (StateT TypeSubst (ErrorT Dianostic Fresh)) a
 
 runTC :: TCEnv -> TC a -> Either Dianostic (a, TypeSubst)
-runTC env = runFresh . runErrorT . flip runStateT M.empty . flip runReaderT env . unTC
+runTC env = runFresh . runErrorT . flip runStateT M.empty . flip runReaderT env
 
 genVar :: TC Type
 genVar = TypeVar <$> fresh

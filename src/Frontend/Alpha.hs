@@ -13,10 +13,10 @@ import Frontend.Types
 import Frontend.Dianostic
 import Internal
 
+-- Alpha Transform
+
 alpha :: AnnProgram -> Fresh AnnProgram
 alpha (typs, expr) = (,) typs <$> runAlpha M.empty (alphaExpr expr)
-
--- Alpha Transform
 
 type AlphaEnv = Map Name Name
 type Alpha a = ReaderT AlphaEnv Fresh a

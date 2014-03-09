@@ -14,10 +14,10 @@ import K.Types
 
 import Internal
 
+-- Pretty print
+
 prettyPrint :: KProgram -> String 
 prettyPrint = runPP . ppExpr . snd 
-
--- Pretty print
 
 type IsNewline = Bool
 type Newlined = Bool
