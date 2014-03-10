@@ -24,7 +24,7 @@ normalize :: AnnProgram -> Fresh KProgram
 normalize (typs, expr) = do
   let env = (buildConEnv typs, M.map toKType builtinFunctions)
   (expr', _) <- runNorm env $ normExpr expr
-  return (buildDataTypeTable typs, flattenLet expr')
+  return (buildDataTypeTable typs, expr')
 
 -- Simplify datatypes declarations
 

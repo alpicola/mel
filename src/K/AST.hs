@@ -64,6 +64,29 @@ freeVars (KOp _ ns) = S.fromList ns
 freeVars (KCon _ ns) = S.fromList ns
 freeVars (KTuple ns) = S.fromList ns
 
+sizeOf :: KExpr -> Int
+sizeOf (KIf _ _ _ e1 e2) = 1 + sizeOf e1 + sizeOf e2
+sizeOf (KLet (KFunDecl _ _ e1) e2) = 1 + sizeOf e1 + sizeOf e2
+sizeOf (KLet (KDecl _ e1) e2) = 1 + sizeOf e1 + sizeOf e2
+sizeOf (KLet (KTupleDecl _ _) e) = 1 + sizeOf e
+sizeOf (KMatch _ alts) = 1 + sum (map f alts)
+ where
+  f (KConCase _ _ e) = sizeOf e
+  f (KDefaultCase e) = sizeOf e
+sizeOf _ = 1
+
+hasSideEffects :: KExpr -> Bool
+hasSideEffects (KIf _ _ _ e1 e2) = hasSideEffects e1 || hasSideEffects e2
+hasSideEffects (KLet (KFunDecl _ _ _) e2) = hasSideEffects e2
+hasSideEffects (KLet (KDecl _ e1) e2) = hasSideEffects e1 || hasSideEffects e2
+hasSideEffects (KLet (KTupleDecl _ _) e) = hasSideEffects e
+hasSideEffects (KMatch _ alts) = any f alts
+ where
+  f (KConCase _ _ e) = hasSideEffects e
+  f (KDefaultCase e) = hasSideEffects e
+hasSideEffects (KApply _ _) = True
+hasSideEffects _ = False 
+
 flattenLet :: KExpr -> KExpr
 flattenLet (KIf cmp n1 n2 e1 e2) =
   KIf cmp n1 n2 (flattenLet e1) (flattenLet e2)
@@ -83,15 +106,3 @@ flattenLet (KLet (KDecl b e1) e2) = go $ flattenLet e1
 flattenLet (KLet (KTupleDecl bs n) e) =
   KLet (KTupleDecl bs n) (flattenLet e)
 flattenLet e = e
-
-sideEffect :: KExpr -> Bool
-sideEffect (KIf _ _ _ e1 e2) = sideEffect e1 || sideEffect e2
-sideEffect (KLet (KFunDecl _ _ _) e2) = sideEffect e2
-sideEffect (KLet (KDecl _ e1) e2) = sideEffect e1 || sideEffect e2
-sideEffect (KLet (KTupleDecl _ _) e) = sideEffect e
-sideEffect (KMatch _ alts) = any f alts
- where
-  f (KConCase _ _ e) = sideEffect e
-  f (KDefaultCase e) = sideEffect e
-sideEffect (KApply _ _) = True
-sideEffect _ = False 

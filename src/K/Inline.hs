@@ -33,7 +33,7 @@ inlineExpr :: KExpr -> Inline KExpr
 inlineExpr (KIf cmp n1 n2 e1 e2) =
   KIf cmp n1 n2 <$> inlineExpr e1 <*> inlineExpr e2
 inlineExpr (KLet (KFunDecl b@(n, _) bs e1) e2) =
-  if S.member n (freeVars e1)
+  if sizeOf e1 > inliningThreashold || S.member n (freeVars e1)
     then
       KLet . KFunDecl b bs <$> inlineExpr e1 <*> inlineExpr e2
     else do
@@ -67,3 +67,6 @@ inlineAlt (KConCase con bs e) =
   KConCase con bs <$> inlineExpr e
 inlineAlt (KDefaultCase e) =
   KDefaultCase <$> inlineExpr e
+
+inliningThreashold :: Int
+inliningThreashold = 30

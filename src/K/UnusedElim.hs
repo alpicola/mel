@@ -54,7 +54,7 @@ ueExpr (KLet (KDecl b e1) e2) = do
   e1' <- ueExpr e1
   e2' <- ueExpr e2
   b' <- ueBinder b
-  if isErased (fst b') && not (sideEffect e1')
+  if isErased (fst b') && not (hasSideEffects e1')
     then return e2'
     else  return $ KLet (KDecl b' e1') e2'
 ueExpr (KLet (KTupleDecl bs n) e) = do
