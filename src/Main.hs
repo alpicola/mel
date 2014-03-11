@@ -13,6 +13,7 @@ import Frontend.Monomorphise
 import K.AST
 import K.Normalize
 import K.Optimize
+import K.Globalize
 import K.PrettyPrint
 
 import Internal
@@ -24,4 +25,4 @@ main = do
       src <- readFile file
       putStrLn $ either id prettyPrint $ do
         prog <- parseMLProgram src >>= elaborate
-        return . runFresh $ alpha prog >>= monomorphise >>= normalize >>= optimize
+        return . runFresh $ alpha prog >>= monomorphise >>= normalize >>= optimize >>= globalize

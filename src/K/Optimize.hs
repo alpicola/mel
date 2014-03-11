@@ -6,15 +6,14 @@ import Data.Bifunctor
 
 import K.AST
 import K.ConstFold
-import K.UnusedElim
-import K.Inline
+import K.Eliminate
 
 import Internal
 
 optimize :: KProgram -> Fresh KProgram
 optimize prog = go prog iterationLimit
  where
-  optimize' = inline >=> return . second flattenLet . constFold . unusedElim
+  optimize' = return . flatten . eliminate . constFold
   go prog 0 = return prog
   go prog i = do
     prog' <- optimize' prog
@@ -24,3 +23,9 @@ optimize prog = go prog iterationLimit
 
 iterationLimit :: Int
 iterationLimit = 100
+
+flatten :: KProgram -> KProgram
+flatten = second $ map flattenDecls
+ where
+  flattenDecls (KFunDecl b bs e) = KFunDecl b bs $ flattenLet e
+  flattenDecls (KDecl b e) = KDecl b $ flattenLet e

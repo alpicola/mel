@@ -17,7 +17,7 @@ import Internal
 -- Pretty print
 
 prettyPrint :: KProgram -> String 
-prettyPrint = runPP . ppExpr . snd 
+prettyPrint (_, decls) = intercalate "\n\n" $ map (runPP . ppDecl) decls
 
 type IsNewline = Bool
 type Newlined = Bool
@@ -61,8 +61,6 @@ ppExpr (KIf cmp n1 n2 e1 e2) = do
   write "else "
   void $ withIndent (ppExpr e2)
 ppExpr (KLet d e) = do
-  newline
-  write "let "
   newlined <- ppDecl d
   when newlined newline
   write "in "
@@ -84,30 +82,30 @@ ppExpr (KOp (FArith FMinus) [n]) =
 ppExpr (KOp (FArith op) [n1, n2]) =
   write $ show n1 ++ " " ++ show op ++ " " ++ show n2 ++ " "
 ppExpr (KCon con ns) = do
-  write $ ('#' : show con) ++ " "
+  write $ show con ++ " "
   unless (null ns) $ do
     write $ "(" ++ intercalate ", " (map show ns) ++ ") "
 ppExpr (KTuple ns) =
   write $ "(" ++ intercalate ", " (map show ns) ++ ") "
+ppExpr (KProj i n) =
+  write $ "#proj" ++ show i ++ " " ++ show n ++ " "
 
 ppDecl :: KDecl -> PP Newlined
 ppDecl (KFunDecl (n, t) bs e) = do
-  write $ "rec " ++ show n ++ " "
+  newline
+  write $ "let rec " ++ show n ++ " "
   write $ "(" ++ (intercalate ") (" $ map showBinder bs) ++ ") "
   write $ ": " ++ show (returnType t (-1)) ++ " = "
   withIndent $ ppExpr e
 ppDecl (KDecl b e) = do
-  write $ showBinder b ++ " = "
+  newline
+  write $ "let " ++ showBinder b ++ " = "
   withIndent $ ppExpr e
-ppDecl (KTupleDecl bs n) = do
-  write $ "(" ++ (intercalate ", " $ map showBinder bs) ++ ") "
-  write $ "= " ++ show n ++ " "
-  return False
 
 ppAlt :: KAlt -> PP ()
 ppAlt (KConCase con bs e) = do
   newline
-  write $ "| " ++ ('#' : show con) ++ " "
+  write $ "| " ++ show con ++ " "
   unless (null bs) $ do
     write $ "(" ++ (intercalate ", " $ map showBinder bs) ++ ") "
   write "-> "

@@ -26,8 +26,8 @@ runAlpha = flip runReaderT
 withSubst :: [(Name, Name)] -> Alpha a -> Alpha a
 withSubst s = local $ flip (foldr $ uncurry M.insert) s
 
-pullName :: Name -> Alpha Name
-pullName name = asks $ fromMaybe name . M.lookup name
+update :: Name -> Alpha Name
+update name = asks $ fromMaybe name . M.lookup name
 
 alphaBinder :: KBinder -> Alpha (KBinder, Maybe (Name, Name))
 alphaBinder (name, t) = do
@@ -41,20 +41,22 @@ alphaExpr (KVar name) = do
   KVar <$> asks (fromMaybe name . M.lookup name)
 alphaExpr (KValue val) = return $ KValue val
 alphaExpr (KIf cmp n1 n2 e1 e2) =
-  KIf cmp <$> pullName n1 <*> pullName n2 <*> alphaExpr e1 <*> alphaExpr e2
+  KIf cmp <$> update n1 <*> update n2 <*> alphaExpr e1 <*> alphaExpr e2
 alphaExpr (KLet d e) = do
   (d', s) <- alphaDecl d
   KLet d' <$> withSubst s (alphaExpr e)
 alphaExpr (KMatch n alts) =
-  KMatch <$> pullName n <*> mapM alphaAlt alts
+  KMatch <$> update n <*> mapM alphaAlt alts
 alphaExpr (KApply n ns) =
-  KApply <$> pullName n <*> mapM pullName ns
+  KApply <$> update n <*> mapM update ns
 alphaExpr (KOp op ns) =
-  KOp op <$> mapM pullName ns
+  KOp op <$> mapM update ns
 alphaExpr (KCon con ns) =
-  KCon con <$> mapM pullName ns
+  KCon con <$> mapM update ns
 alphaExpr (KTuple ns) =
-  KTuple <$> mapM pullName ns
+  KTuple <$> mapM update ns
+alphaExpr (KProj i n) =
+  KProj i <$> update n
 
 alphaDecl :: KDecl -> Alpha (KDecl, [(Name, Name)])
 alphaDecl (KFunDecl b bs e) = do
@@ -65,10 +67,6 @@ alphaDecl (KFunDecl b bs e) = do
 alphaDecl (KDecl b e) = do
   (b', s) <- second maybeToList <$> alphaBinder b
   flip (,) s . KDecl b' <$> alphaExpr e
-alphaDecl (KTupleDecl bs n) = do
-  (bs', s) <- second catMaybes . unzip <$> mapM alphaBinder bs
-  flip (,) s . KTupleDecl bs' <$> pullName n
-
 
 alphaAlt :: KAlt -> Alpha KAlt
 alphaAlt (KConCase con bs e) = do

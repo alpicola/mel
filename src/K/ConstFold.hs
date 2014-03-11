@@ -1,7 +1,7 @@
 module K.ConstFold (constFold) where
 
 import Control.Applicative
-import Control.Monad.Reader
+import Control.Monad.State
 import Data.List
 import Data.Maybe
 import Data.Map (Map)
@@ -19,116 +19,126 @@ import Internal
 -- Do constant folding
 
 constFold :: KProgram -> KProgram
-constFold = second $ runCF (M.empty, M.empty) . cfExpr
+constFold = second $ \decls ->
+  let initialState = (M.empty, (M.empty, M.empty))
+  in catMaybes $ runCF initialState $ mapM cfDecl decls
 
-type CopyEnv = Map Name Name
-type ConstEnv = Map Name (Either Value (Int, [Name]))
-type CF a = Reader (CopyEnv, ConstEnv) a
+type CopyState = Map Name Name
+type ConstState = (Map Name Value, Map Name (Name, [Name]))
+type CF a = State (CopyState, ConstState) a
 
-runCF :: (CopyEnv, ConstEnv) -> CF a -> a
-runCF = flip runReader
+runCF :: (CopyState, ConstState) -> CF a -> a
+runCF state = flip evalState state
 
-withSubst :: [(Name, Name)] -> CF a -> CF a
-withSubst s = local $ first $ flip (foldr $ uncurry M.insert) s
+addCopy :: Name -> Name -> CF ()
+addCopy n n' = modify $ first $ M.insert n n'
 
-withConstValue :: Name -> Value -> CF a -> CF a
-withConstValue n v = local $ second $ M.insert n (Left v)
+addConstValue :: Name -> Value -> CF ()
+addConstValue n c = modify $ second $ first $ M.insert n c
 
-withConstData :: Name -> (Int, [Name]) -> CF a -> CF a
-withConstData n d = local $ second $ M.insert n (Right d)
+addConstData :: Name -> (Name, [Name]) -> CF ()
+addConstData n c = modify $ second $ second $ M.insert n c
 
-pullName :: Name -> CF Name
-pullName name = asks $ fromMaybe name . M.lookup name . fst
+addConstTuple :: Name -> [Name] -> CF ()
+addConstTuple n c = modify $ second $ second $ M.insert n (Erased, c)
+
+getOrig :: Name -> CF Name
+getOrig name = gets $ fromMaybe name . M.lookup name . fst
 
 getInt :: Name -> CF (Maybe Int)
-getInt name = do
-  m <- asks $ M.lookup name . snd
-  return $ m >>= \val ->
-    case val of
-      Left (IntValue i) -> Just i
-      _ -> Nothing
+getInt name = gets $ (M.lookup name >=> fromIntValue) . fst . snd
+ where
+  fromIntValue (IntValue i) = Just i
+  fromIntValue _ = Nothing
 
 getFloat :: Name -> CF (Maybe Float)
-getFloat name = do
-  m <- asks $ M.lookup name . snd
-  return $ m >>= \val ->
-    case val of
-      Left (FloatValue f) -> Just f
-      _ -> Nothing
+getFloat name = gets $ (M.lookup name >=> fromFloatValue) . fst . snd
+ where
+  fromFloatValue (FloatValue f) = Just f
+  fromFloatValue _ = Nothing
 
-getData :: Name -> CF (Maybe (Int, [Name]))
-getData name = do
-  m <- asks $ M.lookup name . snd
-  return $ m >>= \val ->
-    case val of
-      Right d -> Just d
-      _ -> Nothing
+getData :: Name -> CF (Maybe (Name, [Name]))
+getData name = gets $ M.lookup name . snd . snd
+
+getTuple :: Name -> CF (Maybe [Name])
+getTuple name = gets $ fmap snd . M.lookup name . snd . snd
 
 cfExpr :: KExpr -> CF KExpr
-cfExpr (KVar n) = KVar <$> pullName n
+cfExpr (KVar n) = KVar <$> getOrig n
 cfExpr (KValue v) = return $ KValue v
 cfExpr (KIf op n1 n2 e1 e2) = do
-  n1' <- pullName n1
-  n2' <- pullName n2
-  e1' <- cfExpr e1
-  e2' <- cfExpr e2
-  r1 <- fmap (evalCmpOp op) . sequence <$> mapM getInt [n1', n2']
-  r2 <- fmap (evalCmpOp op) . sequence <$> mapM getFloat [n1', n2']
-  case r1 `mplus` r2 of
+  n1' <- getOrig n1
+  n2' <- getOrig n2
+  o1 <- sequence <$> mapM getInt [n1', n2']
+  o2 <- sequence <$> mapM getFloat [n1', n2']
+  case (evalCmpOp op <$> o1) `mplus` (evalCmpOp op <$> o2) of
     Just b -> if b then cfExpr e1 else cfExpr e2
     Nothing -> KIf op n1' n2' <$> cfExpr e1 <*> cfExpr e2
-cfExpr (KLet (KFunDecl b bs e1) e2) =
-  KLet . (KFunDecl b bs) <$> cfExpr e1 <*> cfExpr e2
-cfExpr (KLet (KDecl (n, t) e1) e2) = do
-  e1' <- cfExpr e1
-  case e1' of
-    KVar n' ->
-      withSubst [(n, n')] $ cfExpr e2
-    KValue v ->
-      KLet (KDecl (n, t) e1') <$> withConstValue n v (cfExpr e2)
-    KCon con ns ->
-      KLet (KDecl (n, t) e1') <$> withConstData n (con, ns) (cfExpr e2)
-    KTuple ns ->
-      KLet (KDecl (n, t) e1') <$> withConstData n (0, ns) (cfExpr e2)
-    _ ->
-      KLet (KDecl (n, t) e1') <$> cfExpr e2
-cfExpr (KLet (KTupleDecl bs n) e) = do
-  n' <- pullName n
-  m <- getData n
+cfExpr (KLet d e) = do
+  m <- cfDecl d
   case m of
-    Nothing -> KLet (KTupleDecl bs n') <$> cfExpr e
-    Just (_, ns) -> withSubst (zip (map fst bs) ns) $ cfExpr e
+    Just d' -> KLet d' <$> cfExpr e
+    Nothing -> cfExpr e
 cfExpr (KMatch n alts) = do
-  n' <- pullName n
-  m <- getData n
-  case m of
+  n' <- getOrig n
+  c <- getData n
+  case c of
+    Just (con, ns) ->
+      case fromJust $ find (isMatch con) alts of
+        KConCase _ bs e -> do
+          mapM_ (uncurry addCopy) (zip ns (map fst bs))
+          cfExpr e
+        KDefaultCase e -> cfExpr e
     Nothing -> KMatch n' <$> mapM cfAlt alts 
-    Just (con, ns) -> cfAlt' ns $ fromJust $ find (isMatch con) alts
 cfExpr (KApply n ns) =
-  KApply <$> pullName n <*> mapM pullName ns
+  KApply <$> getOrig n <*> mapM getOrig ns
 cfExpr (KOp (Cmp op) ns) = do
-  ns' <- mapM pullName ns
-  r1 <- fmap (evalCmpOp op) . sequence <$> mapM getInt ns'
-  r2 <- fmap (evalCmpOp op) . sequence <$> mapM getFloat ns'
-  case r1 `mplus` r2 of
+  ns' <- mapM getOrig ns
+  o1 <- sequence <$> mapM getInt ns'
+  o2 <- sequence <$> mapM getFloat ns'
+  case (evalCmpOp op <$> o1) `mplus` (evalCmpOp op <$> o2) of
     Just b -> return $ KValue $ IntValue $ if b then 1 else 0 
     Nothing -> return $ KOp (Cmp op) ns'
 cfExpr (KOp (Arith op) ns) = do
-  ns' <- mapM pullName ns
-  r <- fmap (evalArithOp op) . sequence <$> mapM getInt ns'
-  case r of
+  ns' <- mapM getOrig ns
+  o <- sequence <$> mapM getInt ns'
+  case evalArithOp op <$> o of
     Just i -> return $ KValue $ IntValue i
     Nothing -> return $ KOp (Arith op) ns'
 cfExpr (KOp (FArith op) ns) = do
-  ns' <- mapM pullName ns
-  r <- fmap (evalFArithOp op) . sequence <$> mapM getFloat ns'
-  case r of
+  ns' <- mapM getOrig ns
+  o <- sequence <$> mapM getFloat ns'
+  case evalFArithOp op <$> o of
     Just f -> return $ KValue $ FloatValue f
     Nothing -> return $ KOp (FArith op) ns'
 cfExpr (KCon con ns) =
-  KCon con <$> mapM pullName ns
+  KCon con <$> mapM getOrig ns
 cfExpr (KTuple ns) =
-  KTuple <$> mapM pullName ns
+  KTuple <$> mapM getOrig ns
+cfExpr (KProj i n) = do
+  KProj i <$> getOrig n
+
+cfDecl :: KDecl -> CF (Maybe KDecl) 
+cfDecl (KFunDecl b bs e) =
+  Just . KFunDecl b bs <$> cfExpr e
+cfDecl (KDecl b@(n, _) e) = do
+  e' <- cfExpr e
+  let d = KDecl b e'
+  case e' of
+    KVar n' -> do
+      Nothing <$ addCopy n n'
+    KValue v -> do
+      Just d <$ addConstValue n v
+    KCon con ns ->
+      Just d <$ addConstData n (con, ns)
+    KTuple ns ->
+      Just d <$ addConstTuple n ns
+    KProj i n' -> do
+      c <- getData n'
+      case c of
+        Just (_, ns) -> Nothing <$ addCopy n (ns !! i)
+        _ -> return $ Just d
+    _ -> return $ Just d
 
 cfAlt :: KAlt -> CF KAlt
 cfAlt (KConCase con bs e) =
@@ -136,11 +146,6 @@ cfAlt (KConCase con bs e) =
 cfAlt (KDefaultCase e) =
   KDefaultCase <$> cfExpr e
 
-cfAlt' :: [Name] -> KAlt -> CF KExpr
-cfAlt' ns (KConCase _ bs e) =
-  withSubst (zip (map fst bs) ns) $ cfExpr e
-cfAlt' _ (KDefaultCase e) = cfExpr e
-
-isMatch :: Int -> KAlt -> Bool
+isMatch :: Name -> KAlt -> Bool
 isMatch con (KConCase con' _ _) = con == con'
 isMatch _ (KDefaultCase _) = True
