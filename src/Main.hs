@@ -14,6 +14,7 @@ import K.AST
 import K.Normalize
 import K.Optimize
 import K.Globalize
+import K.Defunctionalize
 import K.PrettyPrint
 
 import Internal
@@ -25,4 +26,5 @@ main = do
       src <- readFile file
       putStrLn $ either id prettyPrint $ do
         prog <- parseMLProgram src >>= elaborate
-        return . runFresh $ alpha prog >>= monomorphise >>= normalize >>= optimize >>= globalize
+        return . runFresh $ alpha prog >>= monomorphise >>= normalize >>= optimize >>=
+                                           globalize >>= defunctionalize >>= optimize

@@ -18,55 +18,67 @@ import Internal
 -- Inlining
 
 inline :: KProgram -> Fresh KProgram
-inline = bimapM return $ runInline M.empty . inlineExpr
+inline = bimapM return $ \decls -> do
+  let env = M.fromList $ map (\d -> (fst (bindOf d), d)) $ filter isInlinable decls
+  runInline env $ mapM inlineDecl decls
 
-type InlineEnv = Map Name (KType, [Name], KExpr) 
+type InlineEnv = Map Name KDecl
 type Inline a = ReaderT InlineEnv Fresh a
 
 runInline :: InlineEnv -> Inline a -> Fresh a
 runInline env = flip runReaderT env
 
-withFunDecl :: KBinder -> [KBinder] -> KExpr -> Inline a -> Inline a
-withFunDecl (n, t) bs e = local $ M.insert n (t, map fst bs, e)
+withFunDecl :: KDecl -> Inline a -> Inline a
+withFunDecl d = local $ M.insert (fst (bindOf d)) d
+
+getFunDecl :: Name -> Inline (Maybe KDecl)
+getFunDecl n = asks $ M.lookup n
 
 inlineExpr :: KExpr -> Inline KExpr
 inlineExpr (KIf cmp n1 n2 e1 e2) =
   KIf cmp n1 n2 <$> inlineExpr e1 <*> inlineExpr e2
-inlineExpr (KLet (KFunDecl b@(n, _) bs e1) e2) =
-  if sizeOf e1 > inliningThreashold || S.member n (freeVars e1)
-    then
-      KLet . KFunDecl b bs <$> inlineExpr e1 <*> inlineExpr e2
-    else do
-      e1' <- inlineExpr e1
-      e2' <- withFunDecl b bs e1' $ inlineExpr e2
-      return $ KLet (KFunDecl b bs e1') e2'
-inlineExpr (KLet (KDecl b e1) e2) =
-  KLet . KDecl b <$> inlineExpr e1 <*> inlineExpr e2
-inlineExpr (KLet d e) =
-  KLet d <$> inlineExpr e
+inlineExpr (KLet d@(KFunDecl _ _ _) e) = do
+  d' <- inlineDecl d
+  if isInlinable d'
+    then KLet d' <$> withFunDecl d' (inlineExpr e)
+    else KLet d' <$> inlineExpr e
+inlineExpr (KLet b e) =
+  KLet <$> inlineDecl b <*> inlineExpr e
 inlineExpr (KMatch n alts) =
   KMatch n <$> mapM inlineAlt alts
 inlineExpr (KApply n ns) = do
-  m <- asks $ M.lookup n
-  case m of
-    Just (t, args, e)
+  entry <- getFunDecl n
+  case entry of
+    Just (KFunDecl (n, t) bs e)
+      | i == j -> lift $ alpha (M.fromList $ zip (map fst bs) ns) e
+      | i > j -> return $ KApply n ns
       | i < j -> do
         n' <- Renamed "f" <$> fresh
-        e' <- lift $ alpha (zip args ns) e
-        return $ KLet (KDecl (n', returnType t i) e') $ KApply n' (drop i ns)
-      | i == j -> lift $ alpha (zip args ns) e
-      | i > j -> return $ KApply n ns
+        e' <- lift $ alpha (M.fromList $ zip (map fst bs) ns) e
+        let d = KDecl (n', snd (uncurryType t i)) e'
+        return $ KLet d $ KApply n' (drop i ns)
      where
-      i = length args
+      i = length bs
       j = length ns
     Nothing -> return $ KApply n ns
 inlineExpr e = return e
+
+inlineDecl :: KDecl -> Inline KDecl
+inlineDecl (KFunDecl b bs e) =
+  KFunDecl b bs <$> inlineExpr e
+inlineDecl (KDecl b e) =
+  KDecl b <$> inlineExpr e
 
 inlineAlt :: KAlt -> Inline KAlt
 inlineAlt (KConCase con bs e) =
   KConCase con bs <$> inlineExpr e
 inlineAlt (KDefaultCase e) =
   KDefaultCase <$> inlineExpr e
+
+isInlinable :: KDecl -> Bool
+isInlinable (KFunDecl (n, _) _ e) =
+  sizeOf e <= inliningThreashold && S.notMember n (freeVars e)
+isInlinable (KDecl _ _) = False
 
 inliningThreashold :: Int
 inliningThreashold = 30

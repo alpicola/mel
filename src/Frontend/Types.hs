@@ -8,6 +8,7 @@ import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Set (Set)
 import qualified Data.Set as S
+import Data.Bifunctor
 
 import Internal
 
@@ -101,7 +102,10 @@ showTypeVar i = '\'' : map (chr . (97 +)) (digits 26 i)
     go 0 = []
     go k = (k `mod` base) : go (k `div` base)
 
+uncurryType :: Type -> Int -> ([Type], Type)
+uncurryType t 0 = ([], t)
+uncurryType (FunType t1 t2) i = first (t1:) $ uncurryType t2 (i-1)
+uncurryType t _ = ([], t)
+
 returnType :: Type -> Int -> Type
-returnType t 0 = t
-returnType (FunType _ t) i = returnType t (i - 1)
-returnType t _ = t
+returnType t i = snd $ uncurryType t i

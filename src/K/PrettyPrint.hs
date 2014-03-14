@@ -83,8 +83,10 @@ ppExpr (KOp (FArith op) [n1, n2]) =
   write $ show n1 ++ " " ++ show op ++ " " ++ show n2 ++ " "
 ppExpr (KCon con ns) = do
   write $ show con ++ " "
-  unless (null ns) $ do
-    write $ "(" ++ intercalate ", " (map show ns) ++ ") "
+  case ns of
+    [] -> return ()
+    [n] -> write $ show n ++ " "
+    _ -> write $ "(" ++ intercalate ", " (map show ns) ++ ") "
 ppExpr (KTuple ns) =
   write $ "(" ++ intercalate ", " (map show ns) ++ ") "
 ppExpr (KProj i n) =
@@ -95,7 +97,7 @@ ppDecl (KFunDecl (n, t) bs e) = do
   newline
   write $ "let rec " ++ show n ++ " "
   write $ "(" ++ (intercalate ") (" $ map showBinder bs) ++ ") "
-  write $ ": " ++ show (returnType t (-1)) ++ " = "
+  write $ ": " ++ show (returnType t $ length bs) ++ " = "
   withIndent $ ppExpr e
 ppDecl (KDecl b e) = do
   newline

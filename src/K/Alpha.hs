@@ -14,8 +14,8 @@ import Internal
 
 -- Alpha Transform
 
-alpha :: [(Name, Name)] -> KExpr -> Fresh KExpr
-alpha env expr = runAlpha (M.fromList env) $ alphaExpr expr
+alpha :: AlphaEnv -> KExpr -> Fresh KExpr
+alpha env expr = runAlpha env $ alphaExpr expr
 
 type AlphaEnv = Map Name Name
 type Alpha a = ReaderT AlphaEnv Fresh a

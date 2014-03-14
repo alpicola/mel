@@ -16,10 +16,12 @@ import Frontend.Builtins
 import Frontend.Primitives
 import K.AST
 import K.Types
+import K.Alpha
 
 import Internal
 
 -- Globalize
+-- TODO: Globalize values that can be allocated statically
 
 globalize :: KProgram -> Fresh KProgram
 globalize = bimapM return $ \decls -> do
@@ -48,8 +50,8 @@ addFunDecl decl = do
   tell [decl]
   modify $ S.insert (fst $ bindOf $ decl)
 
-askTypeOf :: Name -> Glob Type
-askTypeOf name = asks $ fromJust . M.lookup name
+typeOf :: Name -> Glob Type
+typeOf name = asks $ fromJust . M.lookup name
 
 globExpr :: KExpr -> Glob KExpr
 globExpr (KIf cmp n1 n2 e1 e2) =
@@ -64,12 +66,13 @@ globExpr (KLet (KFunDecl b@(n, t) bs e1) e2) = do
       addFunDecl $ KFunDecl b bs e1'
       globExpr e2
     _ -> do
-      ts <- mapM askTypeOf fvs
+      ts <- mapM typeOf fvs
       n' <- flip rename n <$> fresh
       fvs' <- mapM (\v -> flip rename v <$> fresh) fvs
+      e1'' <- lift . lift . lift $ alpha (M.fromList $ zip fvs fvs') e1' 
       let b' = (n', foldr FunType t ts)
       addFunDecl $ KFunDecl b' (zip fvs' ts ++ bs) $
-        KLet (KDecl b (KApply n' fvs')) e1' 
+        KLet (KDecl b (KApply n' fvs')) e1'' 
       KLet (KDecl b (KApply n' fvs)) <$> withBind [b] (globExpr e2)
 globExpr (KLet (KDecl b e1) e2) = do
   KLet . KDecl b <$> globExpr e1 <*> withBind [b] (globExpr e2)

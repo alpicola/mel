@@ -7,13 +7,14 @@ import Data.Bifunctor
 import K.AST
 import K.ConstFold
 import K.Eliminate
+import K.Inline
 
 import Internal
 
 optimize :: KProgram -> Fresh KProgram
 optimize prog = go prog iterationLimit
  where
-  optimize' = return . flatten . eliminate . constFold
+  optimize' = inline >=> (return . flatten . eliminate . constFold)
   go prog 0 = return prog
   go prog i = do
     prog' <- optimize' prog

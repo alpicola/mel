@@ -134,9 +134,9 @@ cfDecl (KDecl b@(n, _) e) = do
     KTuple ns ->
       Just d <$ addConstTuple n ns
     KProj i n' -> do
-      c <- getData n'
+      c <- getTuple n'
       case c of
-        Just (_, ns) -> Nothing <$ addCopy n (ns !! i)
+        Just ns -> Nothing <$ addCopy n (ns !! (i - 1))
         _ -> return $ Just d
     _ -> return $ Just d
 
