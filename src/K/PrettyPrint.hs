@@ -91,13 +91,15 @@ ppExpr (KTuple ns) =
   write $ "(" ++ intercalate ", " (map show ns) ++ ") "
 ppExpr (KProj i n) =
   write $ "#proj" ++ show i ++ " " ++ show n ++ " "
+ppExpr (KExt s _ ns) =
+  write $ ('%' : s) ++ " " ++ intercalate ", " (map show ns) ++ " "
 
 ppDecl :: KDecl -> PP Newlined
 ppDecl (KFunDecl (n, t) bs e) = do
   newline
   write $ "let rec " ++ show n ++ " "
   write $ "(" ++ (intercalate ") (" $ map showBinder bs) ++ ") "
-  write $ ": " ++ show (returnType t $ length bs) ++ " = "
+  write $ ": " ++ show (snd $ uncurryType t $ length bs) ++ " = "
   withIndent $ ppExpr e
 ppDecl (KDecl b e) = do
   newline

@@ -14,12 +14,6 @@ import Internal
 type KType = Type
 type KTypeEnv = Map Name KType
 
-prefixOfType :: KType -> String
-prefixOfType (FunType _ _) = "f"
-prefixOfType (TupleType _) = "t"
-prefixOfType (DataType _ n) = take 1 $ show n
-prefixOfType t = take 1 $ show t
-
 -- replace bool type with int type
 toKType :: Type -> KType
 toKType (TypeVar _) = UnitType

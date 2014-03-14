@@ -66,6 +66,7 @@ elimExpr (KOp op ns) = KOp op ns <$ mapM_ addUse ns
 elimExpr (KCon con ns) = KCon con ns <$ mapM_ addUse ns
 elimExpr (KTuple ns) = KTuple ns <$ mapM_ addUse ns
 elimExpr (KProj i n) = KProj i n <$ addUse n
+elimExpr (KExt s t ns) = KExt s t ns <$ mapM addUse ns
 
 elimDecl :: KDecl -> Elim KDecl
 elimDecl (KFunDecl b bs e) = do

@@ -107,5 +107,8 @@ uncurryType t 0 = ([], t)
 uncurryType (FunType t1 t2) i = first (t1:) $ uncurryType t2 (i-1)
 uncurryType t _ = ([], t)
 
-returnType :: Type -> Int -> Type
-returnType t i = snd $ uncurryType t i
+prefixOfType :: Type -> String
+prefixOfType (FunType _ _) = "f"
+prefixOfType (TupleType _) = "t"
+prefixOfType (DataType _ n) = take 1 $ show n
+prefixOfType t = take 1 $ show t

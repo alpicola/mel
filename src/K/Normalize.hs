@@ -11,7 +11,6 @@ import Data.Bitraversable
 import Frontend.AST
 import Frontend.Types
 import Frontend.Values
-import Frontend.Builtins
 import Frontend.Primitives
 import K.AST
 import K.Types
@@ -22,8 +21,7 @@ import Internal
 
 normalize :: AnnProgram -> Fresh KProgram
 normalize (typs, expr) = do
-  let env = M.map toKType builtinFunctions
-  (expr', t) <- runNorm env $ normExpr expr
+  (expr', t) <- runNorm M.empty $ normExpr expr
   return (buildConDecls typs, [KDecl (Special "main", t) expr'])
 
 -- To simplify datatypes declarations
@@ -66,7 +64,7 @@ normExpr (AVar name _) =
 normExpr (AValue (BoolValue b)) =
   return (KValue $ IntValue $ if b then 1 else 0, IntType)
 normExpr (AValue val) =
-  return (KValue val, toKType $ typeOf val)
+  return (KValue val, toKType $ typeOfValue val)
 normExpr (AIf (AOp (Cmp cmp) [e1, e2]) e3 e4) =
   bindExpr (normExpr e1) $ \(name1, _) ->
     bindExpr (normExpr e2) $ \(name2, _) -> do
@@ -96,7 +94,7 @@ normExpr e@(AApply _ _) = do
   let (e', args) = foldApply e
   bindExpr (normExpr e') $ \(name, t) ->
     bindExprs (map normExpr args) $ \bs ->
-      return (KApply name (map fst bs), returnType t (length args))
+      return (KApply name (map fst bs), snd $ uncurryType t (length args))
 normExpr (AOp op es) = do
   let t = case op of
            Cmp _ -> IntType
@@ -111,6 +109,9 @@ normExpr (ACon con tcon targs es) =
 normExpr (ATuple es) =
   bindExprs (map normExpr es) $ \bs ->
     return $ bimap KTuple TupleType $ unzip bs
+normExpr (AExt s t ns) = do
+  let t' = toKType t
+  return (KExt s t' ns, t')
 
 normDecl :: AnnDecl -> Norm (KDecl, [KBinder])
 normDecl (ARecDecl (name, TypeScheme [] t) e) = do

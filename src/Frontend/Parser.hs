@@ -1,9 +1,10 @@
-module Frontend.Parser (parseMLProgram, parseMLExpr) where
+module Frontend.Parser (parse) where
 
 import Control.Applicative hiding ((<|>), many, optional)
 import Control.Monad.Error
 import Control.Monad.Identity
-import Text.Parsec
+import Text.Parsec hiding (parse)
+import qualified Text.Parsec as P
 import Text.Parsec.String
 import Text.Parsec.Expr
 import Text.Parsec.Language
@@ -20,14 +21,11 @@ import Internal
 
 import GHC.Float (double2Float)
 
+parse :: String -> Either Dianostic MLProgram
+parse = runParser' program
+
 runParser' :: Parser a -> String -> Either Dianostic a
-runParser' p = first show . parse (whiteSpace *> p <* eof) "(input)"
-
-parseMLProgram :: String -> Either Dianostic MLProgram
-parseMLProgram = runParser' program
-
-parseMLExpr :: String -> Either Dianostic MLExpr
-parseMLExpr = runParser' expr
+runParser' p = first show . P.parse (whiteSpace *> p <* eof) "(input)"
 
 -- Parser
 
@@ -35,7 +33,7 @@ program :: Parser MLProgram
 program = fmap partitionEithers $ sepEndBy1 decl' $ optional $ symbol ";;"
  where
   decl' = Left <$> tdecl
-      <|> Right <$> (try (MLDecl Erased <$> expr) <|> decl)
+      <|> Right <$> (try (MLDecl Erased <$> expr) <|> decl <|> ext)
 
 tdecl :: Parser MLTypeDecl
 tdecl = (,,) <$ reserved "type"
@@ -68,7 +66,7 @@ tvar :: Parser Name
 tvar = char '\'' *> lowerName
 
 decl :: Parser MLDecl
-decl = reserved "let" >>
+decl = reserved "let" *>
          (MLRecDecl <$ reserved "rec"
                     <*> binder
                     <*> (flip (foldr MLFun) <$> many1 binder <* symbol "="
@@ -81,6 +79,12 @@ decl = reserved "let" >>
   tuple [] = MLUnitDecl
   tuple [b] = MLDecl b 
   tuple bs = MLTupleDecl bs
+
+ext :: Parser MLDecl
+ext = MLExtFunDecl <$ reserved "external"
+                   <*> binder <* colon
+                   <*> texpr <* symbol "="
+                   <*> stringLiteral
 
 expr' :: Parser MLExpr
 expr' = buildExpressionParser table term
@@ -154,7 +158,7 @@ reservedWords :: [String]
 reservedWords =
   [ "type", "of", "and", "let", "rec", "in"
   , "if", "then", "else", "match", "with", "fun"
-  , "true", "false", "_"
+  , "true", "false", "external", "_"
   ]
 
 reservedOps :: [String]
@@ -179,12 +183,14 @@ lexer = T.makeTokenParser mlDef
 reserved = T.reserved lexer
 reservedOp = T.reservedOp lexer
 ident = T.identifier lexer
+stringLiteral = T.stringLiteral lexer
 natural = fromInteger <$> T.natural lexer
 symbol = T.symbol lexer
 parens = T.parens lexer
 brackets = T.brackets lexer
 semi = T.semi lexer
 comma = T.comma lexer
+colon = T.colon lexer
 whiteSpace = T.whiteSpace lexer
 
 upperName = T.lexeme lexer $ (Raw .) . (:) <$> upper <*> many (T.identLetter mlDef)

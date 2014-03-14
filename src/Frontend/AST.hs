@@ -35,6 +35,7 @@ data MLDecl = MLRecDecl Binder MLExpr
             | MLDecl Binder MLExpr
             | MLUnitDecl MLExpr
             | MLTupleDecl [Binder] MLExpr
+            | MLExtFunDecl Binder MLType String
 
 data MLAlt = MLConCase Name [Binder] MLExpr
            | MLDefaultCase MLExpr
@@ -56,6 +57,7 @@ data AnnExpr = AVar Name [Type]
              | AOp PrimOp [AnnExpr]
              | ACon Name Name [Type] [AnnExpr]
              | ATuple [AnnExpr]
+             | AExt String Type [Name]
              deriving Show
 
 data AnnDecl = ARecDecl PolyBinder AnnExpr

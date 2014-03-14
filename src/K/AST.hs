@@ -32,6 +32,7 @@ data KExpr = KVar Name
            | KCon Name [Name]
            | KTuple [Name]
            | KProj Int Name
+           | KExt String KType [Name]
            deriving (Eq, Show)
 
 data KDecl = KFunDecl KBinder [KBinder] KExpr
@@ -67,6 +68,7 @@ freeVars (KOp _ ns) = S.fromList ns
 freeVars (KCon _ ns) = S.fromList ns
 freeVars (KTuple ns) = S.fromList ns
 freeVars (KProj _ n) = S.singleton n
+freeVars (KExt _ _ ns) = S.fromList ns
 
 sizeOf :: KExpr -> Int
 sizeOf (KIf _ _ _ e1 e2) = 1 + sizeOf e1 + sizeOf e2
@@ -87,7 +89,8 @@ hasSideEffects (KMatch _ alts) = any f alts
   f (KConCase _ _ e) = hasSideEffects e
   f (KDefaultCase e) = hasSideEffects e
 hasSideEffects (KApply _ _) = True
-hasSideEffects _ = False 
+hasSideEffects (KExt _ _ _) = True
+hasSideEffects _ = False
 
 flattenLet :: KExpr -> KExpr
 flattenLet (KIf cmp n1 n2 e1 e2) =

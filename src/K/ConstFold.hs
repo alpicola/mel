@@ -117,6 +117,8 @@ cfExpr (KTuple ns) =
   KTuple <$> mapM getOrig ns
 cfExpr (KProj i n) = do
   KProj i <$> getOrig n
+cfExpr (KExt s t ns) = do
+  KExt s t <$> mapM getOrig ns
 
 cfDecl :: KDecl -> CF (Maybe KDecl) 
 cfDecl (KFunDecl b bs e) =

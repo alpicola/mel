@@ -15,9 +15,11 @@ import Frontend.AST
 import Frontend.Types
 import Frontend.Values
 import Frontend.Primitives
-import Frontend.Builtins
 import Frontend.Dianostic
+
 import Internal
+
+import Debug.Trace
 
 -- Elaborate
 
@@ -26,7 +28,7 @@ elaborate (tdecls, decls) = do
   let conEnv = buildTypeConEnv builtinDataTypes
   typs <- (builtinDataTypes ++) <$> buildDataTypes conEnv tdecls
   let body = foldr MLLet (MLValue UnitValue) decls
-      env = (M.map (TypeScheme []) builtinFunctions, buildConEnv typs)
+      env = (M.empty, buildConEnv typs)
   ((_, body'), s) <- runTC env $ tcExpr body
   return (typs, substExpr s body')
 
@@ -34,6 +36,10 @@ elaborate (tdecls, decls) = do
 
 type TypeConEnv = Map Name Int 
 type ConEnv = Map Name (Int, Name, [Type])
+
+builtinDataTypes :: [DataTypeDecl]
+builtinDataTypes =
+  [ (1, Raw "list", [(Raw "[]", []), (Raw "::", [TypeVar 0, DataType [TypeVar 0] (Raw "list")])]) ]
 
 buildDataTypes :: TypeConEnv -> [MLTypeDecl] -> Either Dianostic [DataTypeDecl]
 buildDataTypes env decls = evalStateT (mapM build decls) env
@@ -153,7 +159,7 @@ tcExpr (MLVar name) = do
           return (t, AVar name' [])
         Nothing -> unboundVar name
 tcExpr (MLValue val) =
-  return (typeOf val, AValue val)
+  return (typeOfValue val, AValue val)
 tcExpr (MLIf e1 e2 e3) = do
   (t1, e1') <- tcExpr e1
   unify t1 BoolType
@@ -249,6 +255,12 @@ tcDecl (MLTupleDecl bs e) = do
               TypeScheme vs' (TupleType ts) ->
                 zip bs $ map (TypeScheme vs') ts
   return (bs', ATupleDecl bs' e')
+tcDecl (MLExtFunDecl b t s) = do
+  t' <- either throwError return $ evalType [] M.empty t
+  let (ts, t'') = uncurryType t' (-1)
+      ns = map (Raw . prefixOfType) ts
+      b' = (b, TypeScheme [] t')
+  return ([b'], ADecl b' $ foldr AFun (AExt s t'' ns) $ zip ns ts)
 
 tcAlt :: MLAlt -> TC (Type, Type, AnnAlt)
 tcAlt (MLConCase con bs e) = do

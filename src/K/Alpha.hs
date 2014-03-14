@@ -15,7 +15,7 @@ import Internal
 -- Alpha Transform
 
 alpha :: AlphaEnv -> KExpr -> Fresh KExpr
-alpha env expr = runAlpha env $ alphaExpr expr
+alpha env = runAlpha env . alphaExpr
 
 type AlphaEnv = Map Name Name
 type Alpha a = ReaderT AlphaEnv Fresh a
@@ -26,8 +26,8 @@ runAlpha = flip runReaderT
 withSubst :: [(Name, Name)] -> Alpha a -> Alpha a
 withSubst s = local $ flip (foldr $ uncurry M.insert) s
 
-update :: Name -> Alpha Name
-update name = asks $ fromMaybe name . M.lookup name
+replaceName :: Name -> Alpha Name
+replaceName name = asks $ fromMaybe name . M.lookup name
 
 alphaBinder :: KBinder -> Alpha (KBinder, Maybe (Name, Name))
 alphaBinder (name, t) = do
@@ -37,26 +37,28 @@ alphaBinder (name, t) = do
     else return $ ((name', t), Just (name, name'))
 
 alphaExpr :: KExpr -> Alpha KExpr
-alphaExpr (KVar name) = do
-  KVar <$> asks (fromMaybe name . M.lookup name)
+alphaExpr (KVar n) =
+  KVar <$> replaceName n
 alphaExpr (KValue val) = return $ KValue val
 alphaExpr (KIf cmp n1 n2 e1 e2) =
-  KIf cmp <$> update n1 <*> update n2 <*> alphaExpr e1 <*> alphaExpr e2
+  KIf cmp <$> replaceName n1 <*> replaceName n2 <*> alphaExpr e1 <*> alphaExpr e2
 alphaExpr (KLet d e) = do
   (d', s) <- alphaDecl d
   KLet d' <$> withSubst s (alphaExpr e)
 alphaExpr (KMatch n alts) =
-  KMatch <$> update n <*> mapM alphaAlt alts
+  KMatch <$> replaceName n <*> mapM alphaAlt alts
 alphaExpr (KApply n ns) =
-  KApply <$> update n <*> mapM update ns
+  KApply <$> replaceName n <*> mapM replaceName ns
 alphaExpr (KOp op ns) =
-  KOp op <$> mapM update ns
+  KOp op <$> mapM replaceName ns
 alphaExpr (KCon con ns) =
-  KCon con <$> mapM update ns
+  KCon con <$> mapM replaceName ns
 alphaExpr (KTuple ns) =
-  KTuple <$> mapM update ns
+  KTuple <$> mapM replaceName ns
 alphaExpr (KProj i n) =
-  KProj i <$> update n
+  KProj i <$> replaceName n
+alphaExpr (KExt s t ns) =
+  KExt s t <$> mapM replaceName ns
 
 alphaDecl :: KDecl -> Alpha (KDecl, [(Name, Name)])
 alphaDecl (KFunDecl b bs e) = do

@@ -11,6 +11,7 @@ maintainer:          ryo@alpico.la
 category:            Compiler
 build-type:          Simple
 cabal-version:       >=1.8
+data-files:          lib/pervasives.ml
 
 executable mel
   main-is:             Main.hs

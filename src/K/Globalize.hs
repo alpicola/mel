@@ -12,8 +12,6 @@ import qualified Data.Set as S
 import Data.Bifunctor
 import Data.Bitraversable
 
-import Frontend.Builtins
-import Frontend.Primitives
 import K.AST
 import K.Types
 import K.Alpha
@@ -25,8 +23,7 @@ import Internal
 
 globalize :: KProgram -> Fresh KProgram
 globalize = bimapM return $ \decls -> do
-  let env = M.union (M.map toKType builtinFunctions)
-                    (M.fromList $ map bindOf decls)
+  let env = M.fromList $ map bindOf decls
   let toplevels = S.fromList $ map (fst . bindOf) decls
   uncurry (flip (++)) <$> runGlob env toplevels (mapM go decls)
  where

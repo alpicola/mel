@@ -17,8 +17,8 @@ instance Show Value where
   show (BoolValue False) = "false"
   show UnitValue = "()"
 
-typeOf :: Value -> Type
-typeOf (IntValue _) = IntType
-typeOf (FloatValue _) = FloatType
-typeOf (BoolValue _) = BoolType
-typeOf UnitValue = UnitType
+typeOfValue :: Value -> Type
+typeOfValue (IntValue _) = IntType
+typeOfValue (FloatValue _) = FloatType
+typeOfValue (BoolValue _) = BoolType
+typeOfValue UnitValue = UnitType

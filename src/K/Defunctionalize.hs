@@ -12,7 +12,6 @@ import Data.Tuple
 import Data.Bifunctor
 import Data.Bitraversable
 
-import Frontend.Builtins
 import K.AST
 import K.Types
 
@@ -22,11 +21,10 @@ import Internal
 
 defunctionalize :: KProgram -> Fresh KProgram
 defunctionalize (cons, decls) = do
-  (table, closEnv1) <- buildClosTypes decls
-  (decls', closEnv2) <- buildApply table
-  let typeEnv = M.union (M.map toKType builtinFunctions) (M.fromList $ map bindOf decls)
-  let env = (typeEnv, (closEnv1, closEnv2))
-  let cons' = concatMap (flip zip [0..] . snd . snd) (M.toList closEnv2)
+  (table, closConEnv) <- buildClosTypes decls
+  (decls', closTypeEnv) <- buildApply table
+  let env = (M.fromList $ map bindOf decls, (closConEnv, closTypeEnv))
+  let cons' = concatMap (flip zip [0..] . snd . snd) (M.toList closTypeEnv)
   (,) (cons ++ cons') <$> (runDefun env $ mapM defunDecl (decls' ++ decls))
 
 -- Build closures datatypes and dispatch function for each fun type
@@ -43,7 +41,7 @@ buildClosTypes decls =
     let tss = reverse $ drop 1 $ reverse $ inits (map snd bs)
         s' = capitalize s
     ns <- forM tss $ \ts -> do
-      let t' = returnType t (length ts)
+      let t' = snd $ uncurryType t (length ts)
       n' <- Renamed s' <$> fresh
       let con = (n, n', ts)
       entry <- gets $ M.lookup t'
@@ -138,7 +136,7 @@ defunExpr (KApply n ns) = do
       | i > j -> return $ foldr KLet (KCon (cons !! j) ns') ds
       | otherwise -> do
         t <- typeOf n
-        let t' = returnType t i
+        let t' = snd $ uncurryType t i
         n' <- Renamed "f" <$> fresh
         b <- (,) n' <$> replaceType t'
         f <- getApply t' (j - i)
