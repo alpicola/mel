@@ -26,8 +26,7 @@ data Type = TypeVar TypeVar
 
 data TypeScheme = TypeScheme [TypeVar] Type
 type TypeSubst = Map TypeVar Type
-type MonoTypeEnv = Map Name Type
-type PolyTypeEnv = Map Name TypeScheme
+type TypeEnv = Map Name TypeScheme
 type DataTypeDecl = (Int, Name, [(Name, [Type])])
 
 class TypeLike t where
@@ -51,11 +50,7 @@ instance TypeLike TypeScheme where
  fv (TypeScheme vs t) = foldr S.delete (fv t) vs
  subst s (TypeScheme vs t) = TypeScheme vs $ subst (foldr M.delete s vs) t
 
-instance TypeLike MonoTypeEnv where
- fv = S.unions . map fv . M.elems
- subst s = M.map (subst s)
-
-instance TypeLike PolyTypeEnv where
+instance TypeLike TypeEnv where
  fv = S.unions . map fv . M.elems
  subst s = M.map (subst s)
 

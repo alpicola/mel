@@ -37,13 +37,10 @@ getFunDecl n = asks $ M.lookup n
 inlineExpr :: KExpr -> Inline KExpr
 inlineExpr (KIf cmp n1 n2 e1 e2) =
   KIf cmp n1 n2 <$> inlineExpr e1 <*> inlineExpr e2
-inlineExpr (KLet d@(KFunDecl _ _ _) e) = do
-  d' <- inlineDecl d
-  if isInlinable d'
-    then KLet d' <$> withFunDecl d' (inlineExpr e)
-    else KLet d' <$> inlineExpr e
-inlineExpr (KLet b e) =
-  KLet <$> inlineDecl b <*> inlineExpr e
+inlineExpr (KLet d e) =
+  if isInlinable d
+    then KLet <$> inlineDecl d <*> withFunDecl d (inlineExpr e)
+    else KLet <$> inlineDecl d <*> inlineExpr e
 inlineExpr (KMatch n alts) =
   KMatch n <$> mapM inlineAlt alts
 inlineExpr (KApply n ns) = do

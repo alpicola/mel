@@ -79,8 +79,8 @@ normExpr (ALet (ATupleDecl bs e1) e2) = do
         ds = zipWith (\b i -> KDecl b (KProj i name)) bs' [1..]
     first (flip (foldr KLet) ds) <$> withBind bs' (normExpr e2)
 normExpr (ALet d e) = do
-  (d', bs) <- normDecl d
-  first (KLet d') <$> withBind bs (normExpr e)
+  d' <- normDecl d
+  first (KLet d') <$> withBind [bindOf d'] (normExpr e)
 normExpr (AMatch e alts) =
   bindExpr (normExpr e) $ \(name, _) ->
     bimap (KMatch name) head . unzip <$> mapM normAlt alts
@@ -113,17 +113,17 @@ normExpr (AExt s t ns) = do
   let t' = toKType t
   return (KExt s t' ns, t')
 
-normDecl :: AnnDecl -> Norm (KDecl, [KBinder])
+normDecl :: AnnDecl -> Norm KDecl
 normDecl (ARecDecl (name, TypeScheme [] t) e) = do
   let b = (name, toKType t)
   let (bs, e') = first (map (second toKType)) $ foldFunction e
-  bimap (KFunDecl b bs) (const [b]) <$> withBind (b:bs) (normExpr e')
+  KFunDecl b bs . fst <$> withBind (b:bs) (normExpr e')
 normDecl (ADecl (name, TypeScheme [] t) e) = do
   let b = (name, toKType t)
   let (bs, e') = first (map (second toKType)) $ foldFunction e
   case bs of
-    [] -> bimap (KDecl b) (const [b]) <$> withBind bs (normExpr e') 
-    _ -> bimap (KFunDecl b bs) (const [b]) <$> withBind bs (normExpr e')
+    [] -> KDecl b . fst <$> normExpr e'
+    _ -> KFunDecl b bs . fst <$> withBind bs (normExpr e')
 
 normAlt :: AnnAlt -> Norm (KAlt, KType)
 normAlt (AConCase con _ _ bs e) = do

@@ -91,7 +91,7 @@ buildTypeConEnv = M.fromList . map (\(i, tcon, _) -> (tcon, i))
 
 -- Typecheck
 
-type TCEnv = (PolyTypeEnv, ConEnv)
+type TCEnv = (TypeEnv, ConEnv)
 type TC a = ReaderT TCEnv (StateT TypeSubst (ErrorT Dianostic Fresh)) a
 
 runTC :: TCEnv -> TC a -> Either Dianostic (a, TypeSubst)
@@ -152,12 +152,7 @@ tcExpr (MLVar name) = do
     Just sc -> do
       (targs, t) <- instantiate sc
       return (t, AVar name targs)
-    Nothing -> do
-      let name' = case name of Raw n -> External n
-      case M.lookup name' env of
-        Just (TypeScheme [] t) ->
-          return (t, AVar name' [])
-        Nothing -> unboundVar name
+    Nothing -> unboundVar name
 tcExpr (MLValue val) =
   return (typeOfValue val, AValue val)
 tcExpr (MLIf e1 e2 e3) = do

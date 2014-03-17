@@ -30,8 +30,8 @@ defunctionalize (cons, decls) = do
 -- Build closures datatypes and dispatch function for each fun type
 
 type ClosType = (Name, [(Name, Name, [Type])])
-type ClosConEnv = Map Name [Name]
-type ClosTypeEnv = Map Type (Name, [Name])
+type ClosConEnv = Map Name [Name]          -- fun name -> closure constructors
+type ClosTypeEnv = Map Type (Name, [Name]) -- fun type -> closure type constructor, applys
 
 buildClosTypes :: [KDecl] -> Fresh (Map Type ClosType, ClosConEnv)
 buildClosTypes decls =
