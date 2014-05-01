@@ -16,5 +16,6 @@ data-files:          lib/pervasives.ml
 executable mel
   main-is:             Main.hs
   -- other-modules:       
-  build-depends:       base ==4.6.*, mtl ==2.1.*, containers ==0.5.*, parsec ==3.1.*, bifunctors ==4.1.*
+  build-depends:       base ==4.6.*, mtl ==2.1.*, containers ==0.5.*, parsec ==3.1.*,
+                       bifunctors ==4.1.*, llvm-general==3.4.*, llvm-general-pure==3.4.*
   hs-source-dirs:      src
