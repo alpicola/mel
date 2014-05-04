@@ -13,7 +13,6 @@ import Data.Bifunctor
 import Data.Bitraversable
 
 import K.AST
-import K.Types
 import K.Alpha
 
 import Internal

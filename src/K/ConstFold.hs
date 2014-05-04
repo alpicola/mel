@@ -86,7 +86,7 @@ cfExpr (KMatch n alts) = do
     Just (con, ns) ->
       case fromJust $ find (isMatch con) alts of
         KConCase _ bs e -> do
-          mapM_ (uncurry addCopy) (zip ns (map fst bs))
+          mapM_ (uncurry addCopy) (zip (map fst bs) ns)
           cfExpr e
         KDefaultCase e -> cfExpr e
     Nothing -> KMatch n' <$> mapM cfAlt alts 

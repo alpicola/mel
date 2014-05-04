@@ -13,7 +13,6 @@ import Frontend.Types
 import Frontend.Values
 import Frontend.Primitives
 import K.AST
-import K.Types
 
 import Internal
 
@@ -22,7 +21,8 @@ import Internal
 normalize :: AnnProgram -> Fresh KProgram
 normalize (typs, expr) = do
   (expr', t) <- runNorm M.empty $ normExpr expr
-  return (buildConDecls typs, [KDecl (Special "main", t) expr'])
+  let mainDecl = KFunDecl (Special "main", FunType UnitType t) [(Erased, UnitType)] expr'
+  return (buildConDecls typs, [mainDecl])
 
 -- To simplify datatypes declarations
 

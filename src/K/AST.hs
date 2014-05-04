@@ -1,4 +1,7 @@
-module K.AST where
+module K.AST
+  ( module K.AST
+  , module Frontend.Types
+  ) where
 
 import Data.Map (Map)
 import qualified Data.Map as M
@@ -10,17 +13,18 @@ import Frontend.Types
 import Frontend.Values
 import Frontend.Primitives
 
-import K.Types
-
 import Internal
 
 -- K-normal form AST
 
+type KType = Type
+type KTypeEnv = Map Name KType
+
+type KBinder = (Name, KType)
+
 type KProgram = ([KConDecl], [KDecl])
 
 type KConDecl = (Name, Int)
-
-type KBinder = (Name, KType)
 
 data KExpr = KVar Name
            | KValue Value
@@ -42,6 +46,10 @@ data KDecl = KFunDecl KBinder [KBinder] KExpr
 data KAlt = KConCase Name [KBinder] KExpr
           | KDefaultCase KExpr
           deriving (Eq, Show)
+
+isDefaultCase :: KAlt -> Bool
+isDefaultCase (KDefaultCase _) = True
+isDefaultCase _ = False
 
 bindOf :: KDecl -> KBinder
 bindOf (KFunDecl b _ _) = b
@@ -109,3 +117,14 @@ flattenLet (KMatch n alts) =
   f (KDefaultCase e) =
     KDefaultCase $ flattenLet e
 flattenLet e = e
+
+-- replace bool type with int type
+toKType :: Type -> KType
+toKType (TypeVar _) = UnitType
+toKType IntType = IntType
+toKType FloatType = FloatType
+toKType BoolType = IntType
+toKType UnitType = UnitType
+toKType (FunType t1 t2) = FunType (toKType t1) (toKType t2)
+toKType (TupleType ts) = TupleType (map toKType ts) 
+toKType (DataType ts tcon) = DataType (map toKType ts) tcon

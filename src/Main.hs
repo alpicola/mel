@@ -18,7 +18,10 @@ import K.Normalize
 import K.Optimize
 import K.Globalize
 import K.Defunctionalize
-import K.PrettyPrint
+
+import Backend.AST
+import Backend.Partition
+import Backend.PrettyPrint
 
 import Internal
 
@@ -36,7 +39,7 @@ main = do
  where
   libFilePath = "lib/pervasives.ml"
 
-compile :: AnnProgram -> Fresh KProgram
+compile :: AnnProgram -> Fresh LProgram
 compile = bimapM return (alpha M.empty)
       >=> monomorphise
       >=> normalize
@@ -44,3 +47,4 @@ compile = bimapM return (alpha M.empty)
       >=> globalize
       >=> defunctionalize
       >=> optimize
+      >=> partition

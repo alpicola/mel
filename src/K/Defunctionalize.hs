@@ -13,7 +13,6 @@ import Data.Bifunctor
 import Data.Bitraversable
 
 import K.AST
-import K.Types
 
 import Internal
 
@@ -24,7 +23,7 @@ defunctionalize (cons, decls) = do
   (table, closConEnv) <- buildClosTypes decls
   (decls', closTypeEnv) <- buildApply table
   let env = (M.fromList $ map bindOf decls, (closConEnv, closTypeEnv))
-  let cons' = concatMap (flip zip [0..] . snd . snd) (M.toList closTypeEnv)
+  let cons' = concatMap (flip zip [0..]) (M.elems closConEnv)
   (,) (cons ++ cons') <$> (runDefun env $ mapM defunDecl (decls' ++ decls))
 
 -- Build closures datatypes and dispatch function for each fun type
@@ -52,6 +51,7 @@ buildClosTypes decls =
           modify $ M.insert t' (tcon, [con])
       return n'
     return $ Just (n, ns)
+  f (KFunDecl ((Special _), t) _ _) = return Nothing
   f (KDecl _ _) = return Nothing
 
   capitalize (c:cs) = toUpper c : cs
